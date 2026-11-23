@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "88374619188",
+    "project_id": "flutter-teamproject-412d2",
+    "storage_bucket": "flutter-teamproject-412d2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:88374619188:android:7b683cf09bf2cf0eae6e61",
+        "android_client_info": {
+          "package_name": "com.example.game_tribunal"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "88374619188-mkfoca4vc2rob9f8na521eqpop892ugt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpgqhfBFzoA-9uBZpTlsO9rfIjQRaLsLw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "88374619188-mkfoca4vc2rob9f8na521eqpop892ugt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

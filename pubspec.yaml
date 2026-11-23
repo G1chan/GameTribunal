@@ -7,10 +7,15 @@ environment:
   sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
+  crypto: ^3.0.8
+  firebase_auth: ^7.1.0
+  firebase_core: ^5.2.0
   flutter:
     sdk: flutter
   flutter_edge_ai: ^2.7.1
   flutter_edge_ai_litertlm: ^1.21.0
+  google_sign_in: ^6.2.0
+  sign_in_with_apple: ^8.2.0
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +24,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
