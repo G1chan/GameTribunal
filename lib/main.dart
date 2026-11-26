@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,19 +6,19 @@ import 'data/mock_data.dart';
 import 'firebase_options.dart';
 import 'screens/home_page.dart';
 import 'screens/login.dart';
+import 'screens/onboarding_page.dart';
 import 'services/ai_moderation_engine.dart';
 import 'services/auth_service.dart';
+import 'services/user_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase 초기화
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // 엔진만 준비하고 대용량 모델 다운로드는 프로필에서 사용자가 시작합니다.
   try {
     await AiModerationEngine.instance.initialize();
     if (kIsWeb && const bool.fromEnvironment('GEMMA_AUTO_DOWNLOAD')) {
@@ -44,7 +43,7 @@ class GameTribunalApp extends StatelessWidget {
       );
 }
 
-/// 앱 시작 시 기존 로그인 상태를 확인해 첫 화면을 결정합니다.
+/// 앱 시작 시 로그인 세션과 Firestore 유저 프로필을 확인해 첫 화면을 결정합니다.
 class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
@@ -53,30 +52,34 @@ class _AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<_AuthGate> {
-  late final Future<User?> _initialUserFuture;
+  late Future<UserProfile?> _initialProfileFuture;
 
   @override
   void initState() {
     super.initState();
-    _initialUserFuture = AuthService.instance.authStateChanges.first;
+    _initialProfileFuture = _loadInitialProfile();
   }
 
-  void _syncNickname(User user) {
-    final displayName = user.displayName?.trim();
-    if (displayName != null && displayName.isNotEmpty) {
-      appStore.user.nickname = displayName;
-      return;
-    }
-    final email = user.email;
-    if (email != null && email.contains('@')) {
-      appStore.user.nickname = email.split('@').first;
-    }
+  Future<UserProfile?> _loadInitialProfile() async {
+    final user = await AuthService.instance.authStateChanges.first;
+    if (user == null) return null;
+
+    final profile = await UserService.instance.ensureUserDocument(user);
+    appStore.user.nickname = profile.nickname;
+    appStore.user.points = profile.points;
+    return profile;
+  }
+
+  void _retry() {
+    setState(() {
+      _initialProfileFuture = _loadInitialProfile();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<User?>(
-      future: _initialUserFuture,
+    return FutureBuilder<UserProfile?>(
+      future: _initialProfileFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -84,12 +87,37 @@ class _AuthGateState extends State<_AuthGate> {
           );
         }
 
-        final user = snapshot.data;
-        if (user != null) {
-          _syncNickname(user);
-          return const HomePage();
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '유저 정보를 불러오지 못했습니다.\n${snapshot.error}',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _retry,
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
         }
-        return const LoginPage();
+
+        final profile = snapshot.data;
+        if (profile == null) {
+          return const LoginPage();
+        }
+        return profile.onboardingCompleted
+            ? const HomePage()
+            : const OnboardingPage();
       },
     );
   }

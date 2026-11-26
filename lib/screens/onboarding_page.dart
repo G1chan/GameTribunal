@@ -1,18 +1,27 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
+import '../services/user_service.dart';
 import '../theme/app_colors.dart';
 import 'home_page.dart';
 
 class OnboardingPage extends StatefulWidget {
-  const OnboardingPage({super.key});
+  const OnboardingPage({
+    super.key,
+    this.initialGames,
+    this.fromProfile = false,
+  });
+
+  final List<String>? initialGames;
+  final bool fromProfile;
 
   @override
   State<OnboardingPage> createState() => _OnboardingPageState();
 }
 
 class _OnboardingPageState extends State<OnboardingPage> {
-  final selected = <String>{'리그 오브 레전드'};
+  late final Set<String> selected;
+  bool _isSaving = false;
 
-  // (게임명, 이미지 경로, 이미지 로딩 실패 시 대체 아이콘, 배경색)
   final games = const [
     (
       '리그 오브 레전드',
@@ -33,6 +42,45 @@ class _OnboardingPageState extends State<OnboardingPage> {
       Color(0xFFFFF0D9),
     ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialGames;
+    selected = (initial != null && initial.isNotEmpty)
+        ? initial.toSet()
+        : <String>{'리그 오브 레전드'};
+  }
+
+  Future<void> _handleSave() async {
+    if (_isSaving || selected.isEmpty) return;
+    setState(() => _isSaving = true);
+
+    try {
+      final uid = AuthService.instance.currentUser?.uid;
+      if (uid != null) {
+        await UserService.instance.saveFavoriteGames(uid, selected.toList());
+      }
+      if (!mounted) return;
+
+      if (widget.fromProfile) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+          (_) => false,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('관심 종목 저장 실패: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,13 +112,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   padding: const EdgeInsets.only(bottom: 11),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => setState(() {
-                      if (pick) {
-                        selected.remove(g.$1);
-                      } else if (selected.length < 3) {
-                        selected.add(g.$1);
-                      }
-                    }),
+                    onTap: _isSaving
+                        ? null
+                        : () => setState(() {
+                              if (pick) {
+                                selected.remove(g.$1);
+                              } else if (selected.length < 3) {
+                                selected.add(g.$1);
+                              }
+                            }),
                     child: Container(
                       height: 92,
                       padding: const EdgeInsets.all(14),
@@ -129,18 +179,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
               }),
               const Spacer(),
               FilledButton(
-                onPressed: selected.isEmpty
-                    ? null
-                    : () => Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(builder: (_) => const HomePage()),
-                          (_) => false,
-                        ),
+                onPressed:
+                    (selected.isEmpty || _isSaving) ? null : _handleSave,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.red,
                   minimumSize: const Size.fromHeight(52),
                 ),
-                child: const Text('선택 완료'),
+                child: Text(_isSaving ? '저장 중...' : '선택 완료'),
               ),
             ],
           ),

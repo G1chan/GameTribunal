@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../services/auth_service.dart';
 import '../services/moderation_service.dart';
+import '../services/user_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/moderation_notice.dart';
+import 'home_page.dart';
 import 'onboarding_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -32,16 +34,21 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _syncNickname(User? user) {
-    final displayName = user?.displayName?.trim();
-    if (displayName != null && displayName.isNotEmpty) {
-      appStore.user.nickname = displayName;
-      return;
-    }
-    final email = user?.email;
-    if (email != null && email.contains('@')) {
-      appStore.user.nickname = email.split('@').first;
-    }
+  Future<void> _completeSignIn(User user) async {
+    final profile = await UserService.instance.ensureUserDocument(user);
+    if (!mounted) return;
+
+    appStore.user.nickname = profile.nickname;
+    appStore.user.points = profile.points;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => profile.onboardingCompleted
+            ? const HomePage()
+            : const OnboardingPage(),
+      ),
+    );
   }
 
   Future<void> _handleEmailLogin() async {
@@ -60,12 +67,9 @@ class _LoginPageState extends State<LoginPage> {
         email: email,
         password: password,
       );
-      if (!mounted) return;
-      _syncNickname(credential.user);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const OnboardingPage()),
-      );
+      final user = credential.user;
+      if (user == null) return;
+      await _completeSignIn(user);
     } on FirebaseAuthException catch (e) {
       _showSnack(AuthService.instance.getErrorMessage(e));
     } catch (e) {
@@ -83,13 +87,9 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
     try {
       final credential = await signInMethod();
-      if (!mounted || credential == null) return;
-
-      _syncNickname(credential.user);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const OnboardingPage()),
-      );
+      final user = credential?.user;
+      if (user == null) return;
+      await _completeSignIn(user);
     } on FirebaseAuthException catch (e) {
       if (e.code == 'popup-closed-by-user' ||
           e.code == 'cancelled-popup-request') {
@@ -323,21 +323,28 @@ class _SignUpPageState extends State<SignUpPage> {
 
     setState(() => _isLoading = true);
     try {
-      // 닉네임 AI/정책 모더레이션 검사
       final modResult = await ModerationService.instance.check(
         nickname,
         context: ModerationContext.nickname,
       );
       if (!mounted || !await handleModeration(context, modResult)) return;
 
-      await AuthService.instance.signUpWithEmail(
+      final credential = await AuthService.instance.signUpWithEmail(
         email: email,
         password: password,
         nickname: nickname,
       );
+      final user = credential.user;
+      if (user != null) {
+        await UserService.instance.ensureUserDocument(
+          user,
+          preferredNickname: nickname,
+        );
+      }
       if (!mounted) return;
 
       appStore.user.nickname = nickname;
+      appStore.user.points = 0;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const OnboardingPage()),
