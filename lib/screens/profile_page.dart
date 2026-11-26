@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/video_upload_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/app_header.dart';
 import '../widgets/user_avatar.dart';
@@ -28,6 +29,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool marketing = false;
   bool _isLoggingOut = false;
   bool _isUploadingPhoto = false;
+  bool _isClaimingMission = false;
 
   Future<void> _handleLogout() async {
     if (_isLoggingOut) return;
@@ -52,12 +54,35 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _claimMission(UserProfile profile) async {
+    if (_isClaimingMission) return;
+    setState(() => _isClaimingMission = true);
+    try {
+      await UserService.instance.claimDailyMission(profile.uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '오늘의 배심원 미션 완료! +${PolicyConfig.dailyMissionRewardPoints} P · +${PolicyConfig.dailyMissionRewardXp} XP 지급',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isClaimingMission = false);
+    }
+  }
+
   Future<void> _changeProfilePhoto(UserProfile profile) async {
     if (_isUploadingPhoto) return;
 
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.surfaceColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -83,9 +108,9 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             if (profile.photoUrl != null && profile.photoUrl!.isNotEmpty)
               ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.restore_rounded,
-                  color: AppColors.muted,
+                  color: context.mutedColor,
                 ),
                 title: const Text('기본 프로필 이미지로 되돌리기'),
                 onTap: () => Navigator.pop(sheetCtx, 'reset'),
@@ -206,9 +231,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     '플래티넘 이상 티어는 판정 리포트의 상위 티어 배심원 분포에 반영됩니다.',
-                    style: TextStyle(color: AppColors.muted, fontSize: 11),
+                    style: TextStyle(color: context.mutedColor, fontSize: 11),
                   ),
                 ],
               ),
@@ -327,6 +352,9 @@ class _ProfilePageState extends State<ProfilePage> {
           final xpRatio = progress.nextLevelXp > 0
               ? (progress.currentXp / progress.nextLevelXp).clamp(0.0, 1.0)
               : 0.0;
+          final missionProgress = (profile.todayVotesCount /
+                  PolicyConfig.dailyMissionTarget)
+              .clamp(0.0, 1.0);
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -334,9 +362,9 @@ class _ProfilePageState extends State<ProfilePage> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.surface,
+                  color: context.surfaceColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.line),
+                  border: Border.all(color: context.lineColor),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,9 +455,9 @@ class _ProfilePageState extends State<ProfilePage> {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                'Lv.${profile.level} ·${profile.title}',
-                                style: const TextStyle(
-                                  color: AppColors.muted,
+                                'Lv.${profile.level} · ${profile.title}',
+                                style: TextStyle(
+                                  color: context.mutedColor,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -437,8 +465,8 @@ class _ProfilePageState extends State<ProfilePage> {
                                 const SizedBox(height: 2),
                                 Text(
                                   profile.email,
-                                  style: const TextStyle(
-                                    color: AppColors.muted,
+                                  style: TextStyle(
+                                    color: context.mutedColor,
                                     fontSize: 12,
                                   ),
                                 ),
@@ -447,6 +475,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               Wrap(
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 spacing: 6,
+                                runSpacing: 4,
                                 children: [
                                   Text(
                                     '판정 적중률 ${profile.accuracyText}',
@@ -469,6 +498,35 @@ class _ProfilePageState extends State<ProfilePage> {
                                   ),
                                 ],
                               ),
+                              if (profile.currentStreak >= 2 ||
+                                  profile.bestStreak >= 2) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF97316)
+                                        .withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: const Color(0xFFF97316)
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    profile.currentStreak >= 2
+                                        ? '🔥 ${profile.currentStreak}연속 적중 중 (최고 ${profile.bestStreak}연속)'
+                                        : '🔥 최고 ${profile.bestStreak}연속 적중 달성',
+                                    style: const TextStyle(
+                                      color: Color(0xFFFB923C),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -478,17 +536,17 @@ class _ProfilePageState extends State<ProfilePage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           '다음 레벨까지 XP (레벨업 시 테두리 자동 진화)',
                           style: TextStyle(
-                            color: AppColors.muted,
+                            color: context.mutedColor,
                             fontSize: 11,
                           ),
                         ),
                         Text(
-                          '${progress.currentXp} /${progress.nextLevelXp} XP',
-                          style: const TextStyle(
-                            color: AppColors.muted,
+                          '${progress.currentXp} / ${progress.nextLevelXp} XP',
+                          style: TextStyle(
+                            color: context.mutedColor,
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                           ),
@@ -501,10 +559,109 @@ class _ProfilePageState extends State<ProfilePage> {
                       child: LinearProgressIndicator(
                         value: xpRatio,
                         minHeight: 7,
-                        backgroundColor: AppColors.redPale,
+                        backgroundColor: context.redPaleColor,
                         color: AppColors.red,
                       ),
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: context.surfaceColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: profile.canClaimDailyMission
+                        ? AppColors.gold
+                        : context.lineColor,
+                    width: profile.canClaimDailyMission ? 1.5 : 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.local_fire_department_rounded,
+                          color: AppColors.gold,
+                          size: 19,
+                        ),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            '오늘의 배심원 미션',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${profile.todayVotesCount} / ${PolicyConfig.dailyMissionTarget}건',
+                          style: const TextStyle(
+                            color: AppColors.red,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '오늘 판정 ${PolicyConfig.dailyMissionTarget}건 참여 시 +${PolicyConfig.dailyMissionRewardPoints} P · +${PolicyConfig.dailyMissionRewardXp} XP 보너스',
+                      style: TextStyle(
+                        color: context.mutedColor,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: missionProgress,
+                        minHeight: 7,
+                        backgroundColor: context.redPaleColor,
+                        color: profile.isDailyMissionClaimedToday
+                            ? const Color(0xFF10B981)
+                            : AppColors.gold,
+                      ),
+                    ),
+                    if (profile.canClaimDailyMission ||
+                        profile.isDailyMissionClaimedToday) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: profile.isDailyMissionClaimedToday
+                            ? OutlinedButton.icon(
+                                onPressed: null,
+                                icon: const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 17,
+                                ),
+                                label: const Text('오늘 미션 보상 수령 완료'),
+                              )
+                            : FilledButton.icon(
+                                onPressed: _isClaimingMission
+                                    ? null
+                                    : () => _claimMission(profile),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.red,
+                                ),
+                                icon: const Icon(
+                                  Icons.card_giftcard_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _isClaimingMission
+                                      ? '보상 지급 중...'
+                                      : '보상 받기 (+${PolicyConfig.dailyMissionRewardPoints} P · +${PolicyConfig.dailyMissionRewardXp} XP)',
+                                ),
+                              ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -550,7 +707,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(46),
-                        foregroundColor: AppColors.ink,
+                        foregroundColor: context.inkColor,
                       ),
                       icon: const Icon(Icons.inventory_2_outlined, size: 19),
                       label: Text(
@@ -675,11 +832,11 @@ class _ProfilePageState extends State<ProfilePage> {
                             subtitle: Text(
                               account == null
                                   ? '미등록 · 탭하여 닉네임과 티어를 등록하세요'
-                                  : '${account.gameId} ·${account.tier}',
+                                  : '${account.gameId} · ${account.tier}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: account == null
-                                    ? AppColors.muted
+                                    ? context.mutedColor
                                     : AppColors.red,
                                 fontWeight: account == null
                                     ? FontWeight.normal
@@ -708,8 +865,29 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 16),
               const Text(
-                '알림 및 개인정보',
+                '화면 · 알림 및 개인정보',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+              ValueListenableBuilder<ThemeMode>(
+                valueListenable: ThemeController.instance,
+                builder: (context, mode, _) {
+                  final isDark = mode == ThemeMode.dark;
+                  return SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('다크 모드'),
+                    subtitle: Text(
+                      isDark
+                          ? '옵시디언 다크 테마 적용 중'
+                          : '라이트 테마 적용 중 (탭하여 다크 모드 전환)',
+                    ),
+                    value: isDark,
+                    activeThumbColor: AppColors.red,
+                    onChanged: (v) {
+                      ThemeController.instance.setDark(v);
+                      UserService.instance.updateDarkMode(profile.uid, v);
+                    },
+                  );
+                },
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -730,7 +908,8 @@ class _ProfilePageState extends State<ProfilePage> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.assignment_outlined),
-                title: const Text('내 사건 및 활동 내역'),
+                title: const Text('내 사건 · 북마크 및 활동 내역'),
+                subtitle: Text('북마크한 사건 ${profile.bookmarkedCaseIds.length}건'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
                   context,
@@ -743,7 +922,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   Icons.psychology_outlined,
                   color: AppColors.primary,
                 ),
-                title: const Text('AI 모더레이션 모델 다운로드'),
+                title: const Text('AI 모더레이션 · 리포트 요약 모델 다운로드'),
                 subtitle: const Text('Chrome: Gemma 4 E2B 웹 모델 · 약 2GB'),
                 trailing: const Icon(Icons.download_rounded),
                 onTap: () async {
@@ -758,7 +937,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Gemma AI 모더레이션이 활성화되었습니다.'),
+                        content: Text('Gemma AI 엔진이 활성화되었습니다.'),
                       ),
                     );
                   } catch (error) {
@@ -865,7 +1044,7 @@ class _InfoBox extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AppColors.redPale,
+          color: context.redPaleColor,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -873,7 +1052,7 @@ class _InfoBox extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+              style: TextStyle(color: context.mutedColor, fontSize: 11),
             ),
             const SizedBox(height: 5),
             Text(

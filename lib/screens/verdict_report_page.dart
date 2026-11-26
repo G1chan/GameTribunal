@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/case_model.dart';
+import '../services/ai_moderation_engine.dart';
 import '../services/auth_service.dart';
 import '../services/case_service.dart';
 import '../services/user_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
+import '../widgets/juror_profile_sheet.dart';
 import '../widgets/verdict_bar.dart';
 
 class VerdictReportPage extends StatefulWidget {
@@ -22,6 +25,9 @@ class VerdictReportPage extends StatefulWidget {
 class _VerdictReportPageState extends State<VerdictReportPage> {
   final _screenshotController = ScreenshotController();
   bool _isExporting = false;
+  bool _isGeneratingAi = false;
+  bool _isDownloadingAi = false;
+  VerdictAiSummary? _aiSummary;
 
   String _buildSummaryText(CaseRecord record) {
     if (record.totalVotes == 0) {
@@ -44,6 +50,65 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
       _ =>
         '최소 참여 인원(${PolicyConfig.minVotesForValidCase}명) 미달 또는 60:40 미만 접전(${record.leftPercent}:${record.rightPercent})으로 치열한 논쟁(보류) 처리되었으며, 적중률 계산에서 제외됩니다.',
     };
+  }
+
+  Future<void> _generateAiSummary(
+    CaseRecord record,
+    List<CaseComment> topComments,
+  ) async {
+    if (_isGeneratingAi) return;
+    setState(() => _isGeneratingAi = true);
+    try {
+      final summary = await AiModerationEngine.instance.summarizeVerdict(
+        game: record.game,
+        title: record.title,
+        description: record.description,
+        partyAStatement: record.partyAStatement,
+        partyBStatement: record.partyBStatement,
+        leftPercent: record.leftPercent,
+        rightPercent: record.rightPercent,
+        totalVotes: record.totalVotes,
+        isClosed: record.isClosed,
+        topComments: topComments.map((c) => c.content).toList(),
+      );
+      if (!mounted) return;
+      setState(() => _aiSummary = summary);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI 요약 생성 실패: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isGeneratingAi = false);
+    }
+  }
+
+  Future<void> _activateGemmaModel(
+    CaseRecord record,
+    List<CaseComment> topComments,
+  ) async {
+    if (_isDownloadingAi) return;
+    setState(() => _isDownloadingAi = true);
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gemma 온디바이스 AI 모델을 준비 중입니다. 잠시 기다려 주세요.'),
+        ),
+      );
+      await AiModerationEngine.instance.downloadAndActivate();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gemma AI 활성화 완료! 정밀 요약을 생성합니다.')),
+      );
+      await _generateAiSummary(record, topComments);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gemma 모델 활성화 실패: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isDownloadingAi = false);
+    }
   }
 
   Future<void> _saveReportImage(CaseRecord record) async {
@@ -83,14 +148,15 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
     if (_isExporting) return;
     setState(() => _isExporting = true);
     try {
-      final shareText = [
+      final lines = [
         '[겜문철 · ${record.game}] ${record.title}',
         '상태: ${record.statusLabel} (참여 ${record.totalVotes}명)',
         '과실 비율: 신청인 ${record.leftPercent}% vs 상대방 ${record.rightPercent}%',
         _buildSummaryText(record),
-      ].join('\n');
+        if (_aiSummary != null) 'AI 요약: ${_aiSummary!.verdictLine}',
+      ];
 
-      await SharePlus.instance.share(ShareParams(text: shareText));
+      await SharePlus.instance.share(ShareParams(text: lines.join('\n')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -135,9 +201,9 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                     child: Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: context.surfaceColor,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppColors.line),
+                        border: Border.all(color: context.lineColor),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -156,11 +222,11 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
+                          Text(
                             '공정한 판정을 위해 투표 참여 전에는 리포트 비율을 공개하지 않습니다.\n사건 상세 화면에서 먼저 판정에 참여해 주세요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: AppColors.muted,
+                              color: context.mutedColor,
                               height: 1.45,
                             ),
                           ),
@@ -195,7 +261,9 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                     stream: CaseService.instance.watchComments(record.id),
                     builder: (context, commentSnap) {
                       final allComments =
-                          commentSnap.data ?? const <CaseComment>[];
+                          (commentSnap.data ?? const <CaseComment>[])
+                              .where((c) => !c.isHidden)
+                              .toList();
                       final rootComments =
                           allComments.where((c) => !c.isReply).toList();
                       rootComments.sort(
@@ -217,7 +285,7 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                             child: Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: AppColors.background,
+                                color: context.bgColor,
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Column(
@@ -283,6 +351,22 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                                     title: '판정 요약',
                                     text: _buildSummaryText(record),
                                   ),
+                                  const SizedBox(height: 12),
+                                  _AiVerdictSummaryCard(
+                                    summary: _aiSummary,
+                                    isGenerating: _isGeneratingAi,
+                                    isDownloadingModel: _isDownloadingAi,
+                                    isGemmaReady:
+                                        AiModerationEngine.instance.isReady,
+                                    onGenerate: () => _generateAiSummary(
+                                      record,
+                                      topComments,
+                                    ),
+                                    onActivateGemma: () => _activateGemmaModel(
+                                      record,
+                                      topComments,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -307,12 +391,12 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                               left: highTierLeftPercent,
                             )
                           else
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 12),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
                               child: Text(
                                 '상위 티어(플래티넘 이상) 배심원 투표 기록이 아직 없습니다. 프로필에서 게임 티어를 등록해 보세요.',
                                 style: TextStyle(
-                                  color: AppColors.muted,
+                                  color: context.mutedColor,
                                   fontSize: 12,
                                 ),
                               ),
@@ -348,11 +432,21 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(
-                                            c.authorNickname,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 13,
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            onTap: () => showJurorProfileSheet(
+                                              context,
+                                              uid: c.authorUid,
+                                              fallbackNickname:
+                                                  c.authorNickname,
+                                            ),
+                                            child: Text(
+                                              c.authorNickname,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 13,
+                                              ),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
@@ -367,8 +461,8 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
                                           const Spacer(),
                                           Text(
                                             '공감 ${c.likeCount} · 비공감 ${c.dislikeCount}',
-                                            style: const TextStyle(
-                                              color: AppColors.muted,
+                                            style: TextStyle(
+                                              color: context.mutedColor,
                                               fontSize: 11,
                                               fontWeight: FontWeight.w700,
                                             ),
@@ -424,6 +518,204 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
           );
         },
       ),
+    );
+  }
+}
+
+class _AiVerdictSummaryCard extends StatelessWidget {
+  const _AiVerdictSummaryCard({
+    required this.summary,
+    required this.isGenerating,
+    required this.isDownloadingModel,
+    required this.isGemmaReady,
+    required this.onGenerate,
+    required this.onActivateGemma,
+  });
+
+  final VerdictAiSummary? summary;
+  final bool isGenerating;
+  final bool isDownloadingModel;
+  final bool isGemmaReady;
+  final VoidCallback onGenerate;
+  final VoidCallback onActivateGemma;
+
+  @override
+  Widget build(BuildContext context) {
+    final badgeLabel = summary != null
+        ? (summary!.usedOnDeviceModel ? 'Gemma AI 생성' : '빠른 요약')
+        : (isGemmaReady ? 'Gemma 준비됨' : '온디바이스 AI');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: AppColors.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'AI 3줄 판결 요약',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: context.redPaleColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (summary == null) ...[
+              Text(
+                '양측 당사자 진술, 투표 비율, 공감 상위 댓글을 종합해 한눈에 보는 판결 요약본을 생성합니다.',
+                style: TextStyle(
+                  color: context.mutedColor,
+                  fontSize: 12,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: isGenerating ? null : onGenerate,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                  ),
+                  icon: isGenerating
+                      ? const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.psychology_alt_rounded, size: 18),
+                  label: Text(
+                    isGenerating ? '판결 요약 분석 중...' : 'AI 3줄 판결 요약 생성',
+                  ),
+                ),
+              ),
+            ] else ...[
+              _SummaryRow(label: '핵심 쟁점', text: summary!.issueLine),
+              const SizedBox(height: 8),
+              _SummaryRow(label: '신청인 요지', text: summary!.partyALine),
+              const SizedBox(height: 8),
+              _SummaryRow(label: '상대방 요지', text: summary!.partyBLine),
+              const SizedBox(height: 8),
+              _SummaryRow(
+                label: '종합 결론',
+                text: summary!.verdictLine,
+                highlight: true,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: isGenerating ? null : onGenerate,
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.refresh_rounded, size: 15),
+                    label: Text(
+                      isGenerating ? '생성 중...' : '다시 요약',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  if (!summary!.usedOnDeviceModel && !isGemmaReady)
+                    FilledButton.tonalIcon(
+                      onPressed: isDownloadingModel ? null : onActivateGemma,
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.download_rounded, size: 15),
+                      label: Text(
+                        isDownloadingModel ? '모델 준비 중...' : 'Gemma AI 활성화',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
+    required this.label,
+    required this.text,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String text;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 68,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: highlight
+                ? context.redPaleColor
+                : context.lineColor.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: highlight ? AppColors.primary : context.mutedColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.45,
+              fontWeight: highlight ? FontWeight.w800 : FontWeight.w500,
+              color: highlight ? context.inkColor : context.mutedColor,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -496,7 +788,7 @@ class _VerdictDonutCard extends StatelessWidget {
                               : [
                                   PieChartSectionData(
                                     value: 1,
-                                    color: AppColors.line,
+                                    color: context.lineColor,
                                     radius: 18,
                                     showTitle: false,
                                   ),
@@ -610,7 +902,7 @@ class _Section extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 text,
-                style: const TextStyle(height: 1.5, color: AppColors.muted),
+                style: TextStyle(height: 1.5, color: context.mutedColor),
               ),
             ],
           ),

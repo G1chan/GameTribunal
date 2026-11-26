@@ -5,7 +5,9 @@ import '../services/case_service.dart';
 import '../services/moderation_service.dart';
 import '../services/user_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_header.dart';
+import '../widgets/juror_profile_sheet.dart';
 import '../widgets/moderation_notice.dart';
 import '../widgets/user_avatar.dart';
 
@@ -67,6 +69,84 @@ class _DiscussionPageState extends State<DiscussionPage> {
   void _startReply(CaseComment parent) {
     setState(() => _replyTarget = parent);
     _focusNode.requestFocus();
+  }
+
+  Future<void> _reportComment(CaseComment comment) async {
+    final uid = AuthService.instance.currentUser?.uid;
+    if (uid == null) return;
+    if (comment.isReportedBy(uid)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이미 신고한 댓글입니다.')),
+      );
+      return;
+    }
+
+    var selectedReason = CaseService.reportReasons.first;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('댓글 신고하기'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '누적 신고 ${PolicyConfig.reportHideThreshold}회 이상 시 자동 숨김 처리됩니다.',
+                style: TextStyle(color: ctx.mutedColor, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              ...CaseService.reportReasons.map((reason) {
+                final selected = selectedReason == reason;
+                return ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: selected ? AppColors.red : ctx.mutedColor,
+                    size: 20,
+                  ),
+                  title: Text(reason, style: const TextStyle(fontSize: 13)),
+                  onTap: () => setDialogState(() => selectedReason = reason),
+                );
+              }),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+              child: const Text('신고 접수'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    try {
+      await CaseService.instance.reportComment(
+        caseId: widget.item.id,
+        commentId: comment.id,
+        uid: uid,
+        reason: selectedReason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('댓글 신고가 접수되었습니다.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('신고 접수 실패: $e')),
+      );
+    }
   }
 
   Future<void> _sendComment() async {
@@ -182,6 +262,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
   }) {
     final liked = comment.isLikedBy(uid);
     final disliked = comment.isDislikedBy(uid);
+    final reported = comment.isReportedBy(uid);
 
     return Row(
       children: [
@@ -205,7 +286,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                       ? Icons.thumb_up_alt_rounded
                       : Icons.thumb_up_alt_outlined,
                   size: 15,
-                  color: liked ? AppColors.red : AppColors.muted,
+                  color: liked ? AppColors.red : context.mutedColor,
                 ),
                 const SizedBox(width: 4),
                 Text(
@@ -213,7 +294,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: liked ? AppColors.red : AppColors.muted,
+                    color: liked ? AppColors.red : context.mutedColor,
                   ),
                 ),
               ],
@@ -241,7 +322,8 @@ class _DiscussionPageState extends State<DiscussionPage> {
                       ? Icons.thumb_down_alt_rounded
                       : Icons.thumb_down_alt_outlined,
                   size: 15,
-                  color: disliked ? const Color(0xFF2563EB) : AppColors.muted,
+                  color:
+                      disliked ? const Color(0xFF2563EB) : context.mutedColor,
                 ),
                 const SizedBox(width: 4),
                 Text(
@@ -250,7 +332,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color:
-                        disliked ? const Color(0xFF2563EB) : AppColors.muted,
+                        disliked ? const Color(0xFF2563EB) : context.mutedColor,
                   ),
                 ),
               ],
@@ -267,18 +349,18 @@ class _DiscussionPageState extends State<DiscussionPage> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.subdirectory_arrow_right_rounded,
                     size: 15,
-                    color: AppColors.muted,
+                    color: context.mutedColor,
                   ),
                   const SizedBox(width: 3),
                   Text(
                     (replyCount ?? 0) > 0 ? '답글 $replyCount' : '답글',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: AppColors.muted,
+                      color: context.mutedColor,
                     ),
                   ),
                 ],
@@ -291,22 +373,55 @@ class _DiscussionPageState extends State<DiscussionPage> {
           InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () => _deleteComment(comment),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.delete_outline_rounded,
                     size: 15,
-                    color: AppColors.muted,
+                    color: context.mutedColor,
                   ),
-                  SizedBox(width: 3),
+                  const SizedBox(width: 3),
                   Text(
                     '삭제',
                     style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.muted,
+                      color: context.mutedColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else if (uid != null)
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _reportComment(comment),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    reported
+                        ? Icons.flag_rounded
+                        : Icons.outlined_flag_rounded,
+                    size: 15,
+                    color: reported
+                        ? const Color(0xFFF97316)
+                        : context.mutedColor,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    reported ? '신고됨' : '신고',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: reported
+                          ? const Color(0xFFF97316)
+                          : context.mutedColor,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -323,64 +438,118 @@ class _DiscussionPageState extends State<DiscussionPage> {
     final isMine = uid != null && reply.authorUid == uid;
     final timestamps = _extractTimestamps(reply.content);
 
+    if (reply.isHidden) {
+      return Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: context.bgColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: context.lineColor),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.visibility_off_outlined,
+              size: 15,
+              color: context.mutedColor,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '신고가 누적되어 숨김 처리된 답글입니다.',
+                style: TextStyle(color: context.mutedColor, fontSize: 12),
+              ),
+            ),
+            if (isMine)
+              TextButton(
+                onPressed: () => _deleteComment(reply),
+                child: const Text('삭제', style: TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: context.bgColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: context.lineColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              LiveUserAvatar(
-                uid: reply.authorUid,
-                radius: 13,
-                showEmblems: false,
-              ),
-              const SizedBox(width: 8),
               Expanded(
-                child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 5,
-                  runSpacing: 2,
-                  children: [
-                    Text(
-                      reply.authorNickname,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => showJurorProfileSheet(
+                    context,
+                    uid: reply.authorUid,
+                    fallbackNickname: reply.authorNickname,
+                  ),
+                  child: Row(
+                    children: [
+                      LiveUserAvatar(
+                        uid: reply.authorUid,
+                        radius: 13,
+                        showEmblems: false,
                       ),
-                    ),
-                    LiveUserTitleBadge(uid: reply.authorUid, compact: true),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1.5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isLeft ? AppColors.redPale : AppColors.bluePale,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        reply.sideLabel,
-                        style: TextStyle(
-                          color: isLeft ? AppColors.red : AppColors.ink,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 5,
+                          runSpacing: 2,
+                          children: [
+                            Text(
+                              reply.authorNickname,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
+                            ),
+                            LiveUserTitleBadge(
+                              uid: reply.authorUid,
+                              compact: true,
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isLeft
+                                    ? context.redPaleColor
+                                    : context.bluePaleColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                reply.sideLabel,
+                                style: TextStyle(
+                                  color: isLeft
+                                      ? AppColors.red
+                                      : context.inkColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
               Text(
                 _timeAgo(reply.createdAt),
-                style: const TextStyle(color: AppColors.muted, fontSize: 10),
+                style: TextStyle(color: context.mutedColor, fontSize: 10),
               ),
             ],
           ),
@@ -411,7 +580,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                         ),
                       ),
                       visualDensity: VisualDensity.compact,
-                      backgroundColor: AppColors.redPale,
+                      backgroundColor: context.redPaleColor,
                       side: BorderSide.none,
                       onPressed: () => Navigator.pop(context, t.duration),
                     ),
@@ -441,9 +610,9 @@ class _DiscussionPageState extends State<DiscussionPage> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              border: Border(bottom: BorderSide(color: AppColors.line)),
+            decoration: BoxDecoration(
+              color: context.surfaceColor,
+              border: Border(bottom: BorderSide(color: context.lineColor)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,30 +661,30 @@ class _DiscussionPageState extends State<DiscussionPage> {
                 }
 
                 if (rootComments.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.forum_outlined,
                             size: 40,
-                            color: AppColors.muted,
+                            color: context.mutedColor,
                           ),
-                          SizedBox(height: 10),
-                          Text(
+                          const SizedBox(height: 10),
+                          const Text(
                             '아직 작성된 판결 근거가 없습니다.',
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               fontSize: 15,
                             ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
                             '첫 의견을 남기고 +15 XP · +5 P를 받아보세요.',
                             style: TextStyle(
-                              color: AppColors.muted,
+                              color: context.mutedColor,
                               fontSize: 12,
                             ),
                           ),
@@ -540,126 +709,176 @@ class _DiscussionPageState extends State<DiscussionPage> {
                     return Container(
                       padding: const EdgeInsets.all(13),
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: context.surfaceColor,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: _replyTarget?.id == c.id
                               ? AppColors.red
-                              : AppColors.line,
+                              : context.lineColor,
                         ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              LiveUserAvatar(uid: c.authorUid, radius: 16),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Wrap(
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  spacing: 6,
-                                  runSpacing: 3,
-                                  children: [
-                                    Text(
-                                      c.authorNickname,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 13,
-                                      ),
+                          if (c.isHidden) ...[
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.visibility_off_outlined,
+                                  size: 16,
+                                  color: context.mutedColor,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '신고가 누적되어 숨김 처리된 댓글입니다.',
+                                    style: TextStyle(
+                                      color: context.mutedColor,
+                                      fontSize: 13,
                                     ),
-                                    LiveUserTitleBadge(
+                                  ),
+                                ),
+                                if (isMine)
+                                  TextButton(
+                                    onPressed: () => _deleteComment(c),
+                                    child: const Text('삭제'),
+                                  ),
+                              ],
+                            ),
+                          ] else ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () => showJurorProfileSheet(
+                                      context,
                                       uid: c.authorUid,
-                                      compact: true,
+                                      fallbackNickname: c.authorNickname,
                                     ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 7,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isLeft
-                                            ? AppColors.redPale
-                                            : AppColors.bluePale,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        c.sideLabel,
-                                        style: TextStyle(
-                                          color: isLeft
-                                              ? AppColors.red
-                                              : AppColors.ink,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
+                                    child: Row(
+                                      children: [
+                                        LiveUserAvatar(
+                                          uid: c.authorUid,
+                                          radius: 16,
                                         ),
-                                      ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Wrap(
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
+                                            spacing: 6,
+                                            runSpacing: 3,
+                                            children: [
+                                              Text(
+                                                c.authorNickname,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                              LiveUserTitleBadge(
+                                                uid: c.authorUid,
+                                                compact: true,
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 7,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isLeft
+                                                      ? context.redPaleColor
+                                                      : context.bluePaleColor,
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                                child: Text(
+                                                  c.sideLabel,
+                                                  style: TextStyle(
+                                                    color: isLeft
+                                                        ? AppColors.red
+                                                        : context.inkColor,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+                                  ),
                                 ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _timeAgo(c.createdAt),
+                                  style: TextStyle(
+                                    color: context.mutedColor,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              c.content,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                height: 1.45,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _timeAgo(c.createdAt),
-                                style: const TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 11,
-                                ),
+                            ),
+                            if (widget.hasVideo && timestamps.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: timestamps
+                                    .map(
+                                      (t) => ActionChip(
+                                        avatar: const Icon(
+                                          Icons.play_arrow_rounded,
+                                          size: 15,
+                                          color: AppColors.red,
+                                        ),
+                                        label: Text(
+                                          '${t.label} 영상 보기',
+                                          style: const TextStyle(
+                                            color: AppColors.red,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        backgroundColor: context.redPaleColor,
+                                        side: BorderSide.none,
+                                        onPressed: () =>
+                                            Navigator.pop(context, t.duration),
+                                      ),
+                                    )
+                                    .toList(),
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            c.content,
-                            style: const TextStyle(fontSize: 14, height: 1.45),
-                          ),
-                          if (widget.hasVideo && timestamps.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: timestamps
-                                  .map(
-                                    (t) => ActionChip(
-                                      avatar: const Icon(
-                                        Icons.play_arrow_rounded,
-                                        size: 15,
-                                        color: AppColors.red,
-                                      ),
-                                      label: Text(
-                                        '${t.label} 영상 보기',
-                                        style: const TextStyle(
-                                          color: AppColors.red,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                      backgroundColor: AppColors.redPale,
-                                      side: BorderSide.none,
-                                      onPressed: () =>
-                                          Navigator.pop(context, t.duration),
-                                    ),
-                                  )
-                                  .toList(),
+                            _buildReactionBar(
+                              comment: c,
+                              uid: uid,
+                              isMine: isMine,
+                              replyCount: replies.length,
+                              onReplyTap: () => _startReply(c),
                             ),
                           ],
-                          const SizedBox(height: 8),
-                          _buildReactionBar(
-                            comment: c,
-                            uid: uid,
-                            isMine: isMine,
-                            replyCount: replies.length,
-                            onReplyTap: () => _startReply(c),
-                          ),
                           if (replies.isNotEmpty)
                             Container(
                               margin: const EdgeInsets.only(top: 8, left: 10),
                               padding: const EdgeInsets.only(left: 10),
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                 border: Border(
                                   left: BorderSide(
-                                    color: AppColors.line,
+                                    color: context.lineColor,
                                     width: 2,
                                   ),
                                 ),
@@ -682,9 +901,9 @@ class _DiscussionPageState extends State<DiscussionPage> {
             top: false,
             child: Container(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                border: Border(top: BorderSide(color: AppColors.line)),
+              decoration: BoxDecoration(
+                color: context.surfaceColor,
+                border: Border(top: BorderSide(color: context.lineColor)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,7 +916,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.redPale,
+                        color: context.redPaleColor,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -736,7 +955,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                       ChoiceChip(
                         label: const Text('신청인 과실'),
                         selected: _selectedSide == 'left',
-                        selectedColor: AppColors.redPale,
+                        selectedColor: context.redPaleColor,
                         onSelected: (_) =>
                             setState(() => _selectedSide = 'left'),
                       ),
@@ -744,7 +963,7 @@ class _DiscussionPageState extends State<DiscussionPage> {
                       ChoiceChip(
                         label: const Text('상대방 과실'),
                         selected: _selectedSide == 'right',
-                        selectedColor: AppColors.bluePale,
+                        selectedColor: context.bluePaleColor,
                         onSelected: (_) =>
                             setState(() => _selectedSide = 'right'),
                       ),

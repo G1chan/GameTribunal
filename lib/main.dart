@@ -35,12 +35,19 @@ class GameTribunalApp extends StatelessWidget {
   const GameTribunalApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.instance,
+      builder: (context, mode, _) => MaterialApp(
         title: '겜문철',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: mode,
         home: const _AuthGate(),
-      );
+      ),
+    );
+  }
 }
 
 /// 앱 시작 시 로그인 세션과 Firestore 유저 프로필을 확인해 첫 화면을 결정합니다.

@@ -26,6 +26,7 @@ class CaseRecord {
     this.videoUrl,
     this.thumbnailUrl,
     this.boostedUntil,
+    this.reportedBy = const <String>[],
   });
 
   final String id;
@@ -49,8 +50,11 @@ class CaseRecord {
   final String? videoUrl;
   final String? thumbnailUrl;
   final DateTime? boostedUntil;
+  final List<String> reportedBy;
 
   bool get hasVideo => videoUrl != null && videoUrl!.trim().isNotEmpty;
+  bool get isHidden => reportedBy.length >= PolicyConfig.reportHideThreshold;
+  bool isReportedBy(String? uid) => uid != null && reportedBy.contains(uid);
 
   int get totalVotes => leftVotes + rightVotes;
 
@@ -137,6 +141,10 @@ class CaseRecord {
       videoUrl: data['videoUrl'] as String?,
       thumbnailUrl: data['thumbnailUrl'] as String?,
       boostedUntil: boostedTs?.toDate(),
+      reportedBy: (data['reportedBy'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
     );
   }
 }
@@ -178,6 +186,7 @@ class CaseComment {
     required this.dislikedBy,
     required this.createdAt,
     this.parentId,
+    this.reportedBy = const <String>[],
   });
 
   final String id;
@@ -189,12 +198,15 @@ class CaseComment {
   final List<String> dislikedBy;
   final DateTime createdAt;
   final String? parentId;
+  final List<String> reportedBy;
 
   int get likeCount => likedBy.length;
   int get dislikeCount => dislikedBy.length;
+  bool get isHidden => reportedBy.length >= PolicyConfig.reportHideThreshold;
 
   bool isLikedBy(String? uid) => uid != null && likedBy.contains(uid);
   bool isDislikedBy(String? uid) => uid != null && dislikedBy.contains(uid);
+  bool isReportedBy(String? uid) => uid != null && reportedBy.contains(uid);
   bool get isReply => parentId != null && parentId!.isNotEmpty;
 
   String get sideLabel => side == 'left' ? '신청인 과실' : '상대방 과실';
@@ -221,6 +233,10 @@ class CaseComment {
       parentId: (rawParentId != null && rawParentId.isNotEmpty)
           ? rawParentId
           : null,
+      reportedBy: (data['reportedBy'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
     );
   }
 }
@@ -273,9 +289,18 @@ class CaseService {
   CaseService._();
   static final instance = CaseService._();
 
+  static const List<String> reportReasons = [
+    '욕설 · 비방 · 혐오 표현',
+    '도배 · 광고 · 스팸',
+    '허위 사실 · 조작된 영상',
+    '개인정보 노출 · 저격 글',
+    '기타 커뮤니티 정책 위반',
+  ];
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   CollectionReference<JsonMap> get _cases => _db.collection('cases');
+  CollectionReference<JsonMap> get _reports => _db.collection('reports');
 
   String _determineWinner(CaseRecord current) {
     if (current.totalVotes < PolicyConfig.minVotesForValidCase) {
@@ -375,6 +400,7 @@ class CaseService {
       'videoUrl': videoUrl,
       'thumbnailUrl': thumbnailUrl,
       'boostedUntil': null,
+      'reportedBy': <String>[],
       'leftVotes': 0,
       'rightVotes': 0,
       'commentCount': 0,
@@ -391,6 +417,77 @@ class CaseService {
     );
 
     return docRef.id;
+  }
+
+  /// 부적절 사건 신고 (중복 신고 방지 + 누적 3회 이상 자동 숨김)
+  Future<void> reportCase({
+    required String caseId,
+    required String uid,
+    required String reason,
+  }) async {
+    final caseRef = _cases.doc(caseId);
+    final reportRef = _reports.doc();
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(caseRef);
+      if (!snap.exists) {
+        throw StateError('존재하지 않는 사건입니다.');
+      }
+      final reportedBy = (snap.data()?['reportedBy'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          <String>[];
+      if (reportedBy.contains(uid)) {
+        throw StateError('이미 신고한 사건입니다.');
+      }
+
+      reportedBy.add(uid);
+      tx.update(caseRef, {'reportedBy': reportedBy});
+      tx.set(reportRef, {
+        'targetType': 'case',
+        'caseId': caseId,
+        'reporterUid': uid,
+        'reason': reason,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// 부적절 댓글/대댓글 신고 (중복 신고 방지 + 누적 3회 이상 자동 숨김)
+  Future<void> reportComment({
+    required String caseId,
+    required String commentId,
+    required String uid,
+    required String reason,
+  }) async {
+    final commentRef =
+        _cases.doc(caseId).collection('comments').doc(commentId);
+    final reportRef = _reports.doc();
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(commentRef);
+      if (!snap.exists) {
+        throw StateError('존재하지 않는 댓글입니다.');
+      }
+      final reportedBy = (snap.data()?['reportedBy'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          <String>[];
+      if (reportedBy.contains(uid)) {
+        throw StateError('이미 신고한 댓글입니다.');
+      }
+
+      reportedBy.add(uid);
+      tx.update(commentRef, {'reportedBy': reportedBy});
+      tx.set(reportRef, {
+        'targetType': 'comment',
+        'caseId': caseId,
+        'commentId': commentId,
+        'reporterUid': uid,
+        'reason': reason,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   /// 긴급 재판 부스트권 1장을 소모해 사건을 24시간 동안 홈 최상단 우선 노출
@@ -560,6 +657,7 @@ class CaseService {
       'parentId': parentId,
       'likedBy': <String>[],
       'dislikedBy': <String>[],
+      'reportedBy': <String>[],
       'createdAt': FieldValue.serverTimestamp(),
     });
     batch.update(caseRef, {
@@ -692,7 +790,7 @@ class CaseService {
     return updated.exists ? CaseRecord.fromDoc(updated) : null;
   }
 
-  /// 내가 투표한 사건 중 마감된 건을 자동 정산해 적중률·보너스 반영
+  /// 내가 투표한 사건 중 마감된 건을 자동 정산해 적중률·연속 적중 스트릭·보너스 반영
   Future<({int settledCount, int hitCount})> settleMyVotes(String uid) async {
     final pendingSnap = await _db
         .collection('users')
@@ -739,6 +837,7 @@ class CaseService {
           hitDelta: isHit ? 1 : 0,
           xpDelta: isHit ? PolicyConfig.xpHitBonus : 0,
           pointsDelta: isHit ? PolicyConfig.pointsHitBonus : 0,
+          streakResult: isHit,
         );
       }
     }

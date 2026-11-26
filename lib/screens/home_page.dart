@@ -4,9 +4,11 @@ import '../services/auth_service.dart';
 import '../services/case_service.dart';
 import '../services/user_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/app_header.dart';
 import '../widgets/game_filter.dart';
+import '../widgets/juror_profile_sheet.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verdict_bar.dart';
 import 'case_create_step1_page.dart';
@@ -24,6 +26,7 @@ class _HomePageState extends State<HomePage> {
   final _searchController = TextEditingController();
   String filter = '전체';
   String _searchQuery = '';
+  bool _isClaimingMission = false;
 
   @override
   void initState() {
@@ -67,6 +70,29 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _claimMission(UserProfile profile) async {
+    if (_isClaimingMission) return;
+    setState(() => _isClaimingMission = true);
+    try {
+      await UserService.instance.claimDailyMission(profile.uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '오늘의 배심원 미션 완료! +${PolicyConfig.dailyMissionRewardPoints} P · +${PolicyConfig.dailyMissionRewardXp} XP 지급',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isClaimingMission = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AuthService.instance.currentUser?.uid;
@@ -80,8 +106,9 @@ class _HomePageState extends State<HomePage> {
             ? UserService.instance.watchUser(uid)
             : const Stream<UserProfile?>.empty(),
         builder: (context, userSnap) {
+          final userProfile = userSnap.data;
           final favoriteGames =
-              userSnap.data?.favoriteGames ?? const <String>[];
+              userProfile?.favoriteGames ?? const <String>[];
 
           return StreamBuilder<List<CaseRecord>>(
             stream: CaseService.instance.watchCases(),
@@ -103,7 +130,10 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
-              final allCases = snapshot.data ?? const <CaseRecord>[];
+              // 누적 신고 3건 이상 숨김 사건은 피드에서 제외
+              final allCases = (snapshot.data ?? const <CaseRecord>[])
+                  .where((c) => !c.isHidden || c.authorUid == uid)
+                  .toList();
               final openCases = allCases.where((c) => !c.isClosed).toList();
 
               final filtered = allCases.where((c) {
@@ -174,7 +204,7 @@ class _HomePageState extends State<HomePage> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.redPale,
+                          color: context.redPaleColor,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -194,10 +224,10 @@ class _HomePageState extends State<HomePage> {
                     onChanged: (v) => setState(() => _searchQuery = v),
                     decoration: InputDecoration(
                       hintText: '사건 제목, 게임, 티어, 쟁점 검색',
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.search_rounded,
                         size: 20,
-                        color: AppColors.muted,
+                        color: context.mutedColor,
                       ),
                       suffixIcon: isSearching
                           ? IconButton(
@@ -206,27 +236,27 @@ class _HomePageState extends State<HomePage> {
                                 _searchController.clear();
                                 setState(() => _searchQuery = '');
                               },
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.close_rounded,
                                 size: 18,
-                                color: AppColors.muted,
+                                color: context.mutedColor,
                               ),
                             )
                           : null,
                       isDense: true,
                       filled: true,
-                      fillColor: AppColors.surface,
+                      fillColor: context.surfaceColor,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.line),
+                        borderSide: BorderSide(color: context.lineColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.line),
+                        borderSide: BorderSide(color: context.lineColor),
                       ),
                     ),
                   ),
@@ -235,6 +265,17 @@ class _HomePageState extends State<HomePage> {
                     value: filter,
                     onChanged: (v) => setState(() => filter = v),
                   ),
+                  if (!widget.liveOnly &&
+                      !isSearching &&
+                      userProfile != null &&
+                      !userProfile.isDailyMissionClaimedToday) ...[
+                    const SizedBox(height: 12),
+                    _DailyMissionBanner(
+                      profile: userProfile,
+                      isClaiming: _isClaimingMission,
+                      onClaim: () => _claimMission(userProfile),
+                    ),
+                  ],
                   if (!isSearching &&
                       favoriteGames.isNotEmpty &&
                       (filter == '전체' || filter == '관심 종목')) ...[
@@ -243,15 +284,15 @@ class _HomePageState extends State<HomePage> {
                       filter == '관심 종목'
                           ? '내 관심 종목만 보기: ${favoriteGames.join(', ')}'
                           : '내 관심 종목(${favoriteGames.join(', ')}) 사건이 우선 추천됩니다.',
-                      style: const TextStyle(
-                        color: AppColors.muted,
+                      style: TextStyle(
+                        color: context.mutedColor,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                   if (heroCase != null) ...[
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 14),
                     _LiveHero(
                       item: heroCase,
                       isFavoriteRecommendation: heroIsFavorite,
@@ -279,8 +320,8 @@ class _HomePageState extends State<HomePage> {
                       ),
                       Text(
                         '총 ${filtered.length}건',
-                        style: const TextStyle(
-                          color: AppColors.muted,
+                        style: TextStyle(
+                          color: context.mutedColor,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -321,6 +362,84 @@ class _HomePageState extends State<HomePage> {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _DailyMissionBanner extends StatelessWidget {
+  const _DailyMissionBanner({
+    required this.profile,
+    required this.isClaiming,
+    required this.onClaim,
+  });
+
+  final UserProfile profile;
+  final bool isClaiming;
+  final VoidCallback onClaim;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress =
+        (profile.todayVotesCount / PolicyConfig.dailyMissionTarget)
+            .clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color:
+              profile.canClaimDailyMission ? AppColors.gold : context.lineColor,
+          width: profile.canClaimDailyMission ? 1.4 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.local_fire_department_rounded,
+            color: AppColors.gold,
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '오늘의 배심원 미션 (${profile.todayVotesCount}/${PolicyConfig.dailyMissionTarget}) · +${PolicyConfig.dailyMissionRewardPoints} P',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(5),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    backgroundColor: context.redPaleColor,
+                    color: AppColors.gold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (profile.canClaimDailyMission) ...[
+            const SizedBox(width: 10),
+            FilledButton(
+              onPressed: isClaiming ? null : onClaim,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.red,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: Text(isClaiming ? '...' : '보상 받기'),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -446,7 +565,7 @@ class _LiveHero extends StatelessWidget {
                   style: TextStyle(
                     color: item.isBoosted
                         ? const Color(0xFFFB923C)
-                        : AppColors.red,
+                        : AppColors.lavender,
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -534,10 +653,10 @@ class _RealCaseCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: context.surfaceColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: item.isBoosted ? const Color(0xFFF97316) : AppColors.line,
+            color: item.isBoosted ? const Color(0xFFF97316) : context.lineColor,
             width: item.isBoosted ? 1.6 : 1,
           ),
         ),
@@ -553,7 +672,7 @@ class _RealCaseCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFF7ED),
+                      color: const Color(0xFFF97316).withValues(alpha: 0.16),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: const Color(0xFFF97316)),
                     ),
@@ -563,13 +682,13 @@ class _RealCaseCard extends StatelessWidget {
                         Icon(
                           Icons.rocket_launch_rounded,
                           size: 11,
-                          color: Color(0xFFEA580C),
+                          color: Color(0xFFFB923C),
                         ),
                         SizedBox(width: 3),
                         Text(
                           '긴급 판정',
                           style: TextStyle(
-                            color: Color(0xFFEA580C),
+                            color: Color(0xFFFB923C),
                             fontSize: 10,
                             fontWeight: FontWeight.w900,
                           ),
@@ -598,7 +717,7 @@ class _RealCaseCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.redPale,
+                      color: context.redPaleColor,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
@@ -618,13 +737,15 @@ class _RealCaseCard extends StatelessWidget {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: item.isClosed ? AppColors.line : AppColors.redPale,
+                    color: item.isClosed
+                        ? context.lineColor
+                        : context.redPaleColor,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     item.isClosed ? '종결' : item.remainingTimeText,
                     style: TextStyle(
-                      color: item.isClosed ? AppColors.muted : AppColors.red,
+                      color: item.isClosed ? context.mutedColor : AppColors.red,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -654,8 +775,8 @@ class _RealCaseCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 item.statusLabel,
-                style: const TextStyle(
-                  color: AppColors.muted,
+                style: TextStyle(
+                  color: context.mutedColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -668,7 +789,7 @@ class _RealCaseCard extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.redPale,
+                  color: context.redPaleColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Row(
@@ -693,29 +814,49 @@ class _RealCaseCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                LiveUserAvatar(
-                  uid: item.authorUid,
-                  radius: 11,
-                  showEmblems: false,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    item.authorNickname,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => showJurorProfileSheet(
+                      context,
+                      uid: item.authorUid,
+                      fallbackNickname: item.authorNickname,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          LiveUserAvatar(
+                            uid: item.authorUid,
+                            radius: 11,
+                            showEmblems: false,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              item.authorNickname,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: context.mutedColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          LiveUserTitleBadge(
+                            uid: item.authorUid,
+                            compact: true,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 5),
-                LiveUserTitleBadge(uid: item.authorUid, compact: true),
-                const Spacer(),
+                const SizedBox(width: 6),
                 Text(
                   '배심원 ${item.totalVotes}명 · 댓글 ${item.commentCount}',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                  style: TextStyle(color: context.mutedColor, fontSize: 12),
                 ),
               ],
             ),
@@ -742,16 +883,16 @@ class _EmptyCasesCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: context.surfaceColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: context.lineColor),
       ),
       child: Column(
         children: [
           Icon(
             isSearching ? Icons.search_off_rounded : Icons.gavel_rounded,
             size: 42,
-            color: AppColors.muted,
+            color: context.mutedColor,
           ),
           const SizedBox(height: 12),
           Text(
@@ -766,7 +907,7 @@ class _EmptyCasesCard extends StatelessWidget {
                 ? '다른 키워드로 검색하거나 게임 필터를 전체로 바꿔보세요.'
                 : '첫 번째 게임 과실 사건을 등록하고 배심원 판정을 받아보세요.',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
+            style: TextStyle(color: context.mutedColor, fontSize: 13),
           ),
           if (!isSearching) ...[
             const SizedBox(height: 16),

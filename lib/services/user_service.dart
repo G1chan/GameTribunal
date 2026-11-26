@@ -12,6 +12,7 @@ class PolicyConfig {
   static const int minValidJudgedForAccuracy = 3;
   static const int minVotesForValidCase = 3;
   static const double decisiveThreshold = 0.60; // 60:40 이상일 때만 유효 판결
+  static const int reportHideThreshold = 3; // 누적 신고 3건 이상 시 자동 숨김
 
   static const int xpVote = 10;
   static const int pointsVote = 5;
@@ -24,6 +25,11 @@ class PolicyConfig {
 
   static const int xpHitBonus = 20;
   static const int pointsHitBonus = 15;
+
+  // 일일 배심원 미션 정책
+  static const int dailyMissionTarget = 3;
+  static const int dailyMissionRewardPoints = 25;
+  static const int dailyMissionRewardXp = 30;
 }
 
 /// 게임별 연동 계정 및 티어 정보
@@ -87,6 +93,13 @@ class UserProfile {
     this.equippedTitleId,
     this.nicknameTickets = 0,
     this.boostTickets = 0,
+    this.currentStreak = 0,
+    this.bestStreak = 0,
+    this.dailyMissionDate = '',
+    this.dailyVotesCount = 0,
+    this.dailyMissionClaimed = false,
+    this.bookmarkedCaseIds = const <String>[],
+    this.darkMode = false,
   }) : totalEarnedPoints = totalEarnedPoints ?? points;
 
   final String uid;
@@ -109,6 +122,32 @@ class UserProfile {
   final String? equippedTitleId;
   final int nicknameTickets;
   final int boostTickets;
+  final int currentStreak; // 현재 연속 적중 횟수
+  final int bestStreak; // 역대 최고 연속 적중 횟수
+  final String dailyMissionDate; // YYYY-MM-DD
+  final int dailyVotesCount;
+  final bool dailyMissionClaimed;
+  final List<String> bookmarkedCaseIds;
+  final bool darkMode;
+
+  static String todayKey() {
+    final now = DateTime.now();
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$m-$d';
+  }
+
+  int get todayVotesCount =>
+      dailyMissionDate == todayKey() ? dailyVotesCount : 0;
+
+  bool get isDailyMissionClaimedToday =>
+      dailyMissionDate == todayKey() && dailyMissionClaimed;
+
+  bool get canClaimDailyMission =>
+      todayVotesCount >= PolicyConfig.dailyMissionTarget &&
+      !isDailyMissionClaimedToday;
+
+  bool isBookmarked(String caseId) => bookmarkedCaseIds.contains(caseId);
 
   ShopItem? get equippedTitleItem => ShopCatalog.findById(equippedTitleId);
 
@@ -207,6 +246,16 @@ class UserProfile {
       equippedTitleId: data['equippedTitleId'] as String?,
       nicknameTickets: (data['nicknameTickets'] as num?)?.toInt() ?? 0,
       boostTickets: (data['boostTickets'] as num?)?.toInt() ?? 0,
+      currentStreak: (data['currentStreak'] as num?)?.toInt() ?? 0,
+      bestStreak: (data['bestStreak'] as num?)?.toInt() ?? 0,
+      dailyMissionDate: (data['dailyMissionDate'] as String?) ?? '',
+      dailyVotesCount: (data['dailyVotesCount'] as num?)?.toInt() ?? 0,
+      dailyMissionClaimed: (data['dailyMissionClaimed'] as bool?) ?? false,
+      bookmarkedCaseIds: (data['bookmarkedCaseIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
+      darkMode: (data['darkMode'] as bool?) ?? false,
     );
   }
 }
@@ -259,6 +308,13 @@ class UserService {
       'totalVotes': 0,
       'validJudgedCount': 0,
       'hitCount': 0,
+      'currentStreak': 0,
+      'bestStreak': 0,
+      'dailyMissionDate': '',
+      'dailyVotesCount': 0,
+      'dailyMissionClaimed': false,
+      'bookmarkedCaseIds': <String>[],
+      'darkMode': false,
       'onboardingCompleted': false,
       'notificationsEnabled': true,
       'createdAt': FieldValue.serverTimestamp(),
@@ -301,6 +357,78 @@ class UserService {
       },
       SetOptions(merge: true),
     );
+  }
+
+  /// 다크 모드 설정 저장
+  Future<void> updateDarkMode(String uid, bool enabled) async {
+    await _users.doc(uid).set(
+      {'darkMode': enabled},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// 관심 사건 북마크(찜) 토글
+  Future<void> toggleBookmark({
+    required String uid,
+    required String caseId,
+    required bool currentlyBookmarked,
+  }) async {
+    await _users.doc(uid).set(
+      {
+        'bookmarkedCaseIds': currentlyBookmarked
+            ? FieldValue.arrayRemove([caseId])
+            : FieldValue.arrayUnion([caseId]),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// 일일 배심원 미션 보상 수령 (하루 3건 판정 달성 시 +25 P, +30 XP)
+  Future<void> claimDailyMission(String uid) async {
+    final docRef = _users.doc(uid);
+    final today = UserProfile.todayKey();
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(docRef);
+      final data = snap.data() ?? const <String, dynamic>{};
+
+      final date = (data['dailyMissionDate'] as String?) ?? '';
+      final count =
+          date == today ? ((data['dailyVotesCount'] as num?)?.toInt() ?? 0) : 0;
+      final claimed =
+          date == today && ((data['dailyMissionClaimed'] as bool?) ?? false);
+
+      if (count < PolicyConfig.dailyMissionTarget) {
+        throw StateError(
+          '오늘 판정 ${PolicyConfig.dailyMissionTarget}건을 완료해야 보상을 받을 수 있습니다. ($count/${PolicyConfig.dailyMissionTarget})',
+        );
+      }
+      if (claimed) {
+        throw StateError('오늘의 미션 보상을 이미 수령했습니다.');
+      }
+
+      final prevXp = (data['xp'] as num?)?.toInt() ?? 0;
+      final prevPoints = (data['points'] as num?)?.toInt() ?? 0;
+      final prevEarned =
+          (data['totalEarnedPoints'] as num?)?.toInt() ?? prevPoints;
+
+      final nextXp = prevXp + PolicyConfig.dailyMissionRewardXp;
+      final nextLevel = UserProfile.computeLevelProgress(nextXp).level;
+
+      tx.set(
+        docRef,
+        {
+          'xp': nextXp,
+          'level': nextLevel,
+          'points': prevPoints + PolicyConfig.dailyMissionRewardPoints,
+          'totalEarnedPoints':
+              prevEarned + PolicyConfig.dailyMissionRewardPoints,
+          'dailyMissionDate': today,
+          'dailyMissionClaimed': true,
+        },
+        SetOptions(merge: true),
+      );
+    });
   }
 
   /// 프로필 사진 URL 저장 (null 전달 시 기본 아바타로 초기화)
@@ -494,7 +622,7 @@ class UserService {
     await batch.commit();
   }
 
-  /// 경험치·포인트·투표 통계 안전하게 증가 (트랜잭션 처리)
+  /// 경험치·포인트·투표 통계·스트릭·일일 미션 진행도 안전하게 갱신 (트랜잭션)
   Future<void> addReward({
     required String uid,
     int xpDelta = 0,
@@ -502,8 +630,11 @@ class UserService {
     int totalVotesDelta = 0,
     int validJudgedDelta = 0,
     int hitDelta = 0,
+    bool? streakResult,
   }) async {
     final docRef = _users.doc(uid);
+    final today = UserProfile.todayKey();
+
     await _db.runTransaction((tx) async {
       final snap = await tx.get(docRef);
       final data = snap.data() ?? const <String, dynamic>{};
@@ -523,19 +654,40 @@ class UserService {
           ((data['validJudgedCount'] as num?)?.toInt() ?? 0) + validJudgedDelta;
       final nextHit = ((data['hitCount'] as num?)?.toInt() ?? 0) + hitDelta;
 
-      tx.set(
-        docRef,
-        {
-          'xp': nextXp,
-          'level': nextLevel,
-          'points': nextPoints,
-          'totalEarnedPoints': nextEarned,
-          'totalVotes': nextTotalVotes,
-          'validJudgedCount': nextValidJudged,
-          'hitCount': nextHit,
-        },
-        SetOptions(merge: true),
-      );
+      final updates = <String, dynamic>{
+        'xp': nextXp,
+        'level': nextLevel,
+        'points': nextPoints,
+        'totalEarnedPoints': nextEarned,
+        'totalVotes': nextTotalVotes,
+        'validJudgedCount': nextValidJudged,
+        'hitCount': nextHit,
+      };
+
+      // 일일 미션(오늘 투표 수) 자동 누적
+      if (totalVotesDelta > 0) {
+        final prevDate = (data['dailyMissionDate'] as String?) ?? '';
+        final prevDaily = prevDate == today
+            ? ((data['dailyVotesCount'] as num?)?.toInt() ?? 0)
+            : 0;
+        final prevClaimed = prevDate == today &&
+            ((data['dailyMissionClaimed'] as bool?) ?? false);
+        updates['dailyMissionDate'] = today;
+        updates['dailyVotesCount'] = prevDaily + totalVotesDelta;
+        updates['dailyMissionClaimed'] = prevClaimed;
+      }
+
+      // 연속 적중 스트릭 갱신
+      if (streakResult != null) {
+        final prevStreak = (data['currentStreak'] as num?)?.toInt() ?? 0;
+        final prevBest = (data['bestStreak'] as num?)?.toInt() ?? 0;
+        final nextStreak = streakResult ? prevStreak + 1 : 0;
+        final nextBest = nextStreak > prevBest ? nextStreak : prevBest;
+        updates['currentStreak'] = nextStreak;
+        updates['bestStreak'] = nextBest;
+      }
+
+      tx.set(docRef, updates, SetOptions(merge: true));
     });
   }
 
