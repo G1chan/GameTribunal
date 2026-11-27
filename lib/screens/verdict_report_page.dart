@@ -10,6 +10,7 @@ import '../services/case_service.dart';
 import '../services/user_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_download_dialog.dart';
 import '../widgets/app_header.dart';
 import '../widgets/juror_profile_sheet.dart';
 import '../widgets/verdict_bar.dart';
@@ -90,22 +91,9 @@ class _VerdictReportPageState extends State<VerdictReportPage> {
     if (_isDownloadingAi) return;
     setState(() => _isDownloadingAi = true);
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gemma 온디바이스 AI 모델을 준비 중입니다. 잠시 기다려 주세요.'),
-        ),
-      );
-      await AiModerationEngine.instance.downloadAndActivate();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gemma AI 활성화 완료! 정밀 요약을 생성합니다.')),
-      );
+      final ready = await showAiModelDownloadDialog(context);
+      if (!mounted || !ready) return;
       await _generateAiSummary(record, topComments);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gemma 모델 활성화 실패: $e')),
-      );
     } finally {
       if (mounted) setState(() => _isDownloadingAi = false);
     }

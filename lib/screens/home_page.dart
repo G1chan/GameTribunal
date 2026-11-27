@@ -9,6 +9,7 @@ import '../widgets/app_bottom_navigation.dart';
 import '../widgets/app_header.dart';
 import '../widgets/game_filter.dart';
 import '../widgets/juror_profile_sheet.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verdict_bar.dart';
 import 'case_create_step1_page.dart';
@@ -23,7 +24,16 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const int _pageStep = 15;
+
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+
+  late Stream<List<CaseRecord>> _casesStream;
+  Stream<UserProfile?>? _userStream;
+
+  int _caseLimit = _pageStep;
+  bool _canLoadMore = false;
   String filter = '전체';
   String _searchQuery = '';
   bool _isClaimingMission = false;
@@ -31,13 +41,36 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    final uid = AuthService.instance.currentUser?.uid;
+    _userStream = uid != null ? UserService.instance.watchUser(uid) : null;
+    _casesStream = CaseService.instance.watchCases(limit: _caseLimit);
+    _scrollController.addListener(_onScroll);
     unawaited(_settlePendingVotes());
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_canLoadMore || !_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 240) {
+      _loadMoreCases();
+    }
+  }
+
+  void _loadMoreCases() {
+    if (!_canLoadMore) return;
+    setState(() {
+      _canLoadMore = false;
+      _caseLimit += _pageStep;
+      _casesStream = CaseService.instance.watchCases(limit: _caseLimit);
+    });
   }
 
   bool _matchesSearch(CaseRecord c) {
@@ -102,20 +135,18 @@ class _HomePageState extends State<HomePage> {
       appBar: const AppHeader(),
       bottomNavigationBar: AppBottomNavigation(index: widget.liveOnly ? 1 : 0),
       body: StreamBuilder<UserProfile?>(
-        stream: uid != null
-            ? UserService.instance.watchUser(uid)
-            : const Stream<UserProfile?>.empty(),
+        stream: _userStream,
         builder: (context, userSnap) {
           final userProfile = userSnap.data;
           final favoriteGames =
               userProfile?.favoriteGames ?? const <String>[];
 
           return StreamBuilder<List<CaseRecord>>(
-            stream: CaseService.instance.watchCases(),
+            stream: _casesStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting &&
                   !snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
+                return const HomeFeedSkeleton();
               }
 
               if (snapshot.hasError) {
@@ -130,8 +161,16 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
+              final rawCases = snapshot.data ?? const <CaseRecord>[];
+              final isLoadingMore =
+                  snapshot.connectionState == ConnectionState.waiting &&
+                      snapshot.hasData;
+              _canLoadMore =
+                  snapshot.connectionState == ConnectionState.active &&
+                      rawCases.length >= _caseLimit;
+
               // 누적 신고 3건 이상 숨김 사건은 피드에서 제외
-              final allCases = (snapshot.data ?? const <CaseRecord>[])
+              final allCases = rawCases
                   .where((c) => !c.isHidden || c.authorUid == uid)
                   .toList();
               final openCases = allCases.where((c) => !c.isClosed).toList();
@@ -185,6 +224,7 @@ class _HomePageState extends State<HomePage> {
               }
 
               return ListView(
+                controller: _scrollController,
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
                   Row(
@@ -355,6 +395,26 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                  if (isLoadingMore)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        ),
+                      ),
+                    )
+                  else if (_canLoadMore)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: OutlinedButton.icon(
+                        onPressed: _loadMoreCases,
+                        icon: const Icon(Icons.expand_more_rounded, size: 18),
+                        label: const Text('이전 사건 더 불러오기'),
                       ),
                     ),
                 ],
@@ -595,7 +655,7 @@ class _LiveHero extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              '${item.game} · ${item.tier} · ${item.remainingTimeText}',
+              '${item.game} · ${item.tier} ·${item.remainingTimeText}',
               style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),
             const SizedBox(height: 14),
@@ -700,7 +760,7 @@ class _RealCaseCard extends StatelessWidget {
                 ],
                 Flexible(
                   child: Text(
-                    '${item.game} · ${item.tier}',
+                    '${item.game} ·${item.tier}',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: AppColors.red,

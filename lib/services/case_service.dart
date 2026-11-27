@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/case_model.dart';
+import 'notification_service.dart';
 import 'user_service.dart';
 
 /// Firestore cases/{caseId} 문서와 1:1 대응하는 실제 사건 모델
@@ -302,12 +304,17 @@ class CaseService {
   CollectionReference<JsonMap> get _cases => _db.collection('cases');
   CollectionReference<JsonMap> get _reports => _db.collection('reports');
 
-  String _determineWinner(CaseRecord current) {
-    if (current.totalVotes < PolicyConfig.minVotesForValidCase) {
+  /// 순수 판결 규칙 함수 (단위 테스트 및 서버 로직 이관 공용)
+  static String determineWinnerCounts({
+    required int leftVotes,
+    required int rightVotes,
+  }) {
+    final total = leftVotes + rightVotes;
+    if (total < PolicyConfig.minVotesForValidCase) {
       return 'draw';
     }
-    final leftRatio = current.leftVotes / current.totalVotes;
-    final rightRatio = current.rightVotes / current.totalVotes;
+    final leftRatio = leftVotes / total;
+    final rightRatio = rightVotes / total;
     if (leftRatio >= PolicyConfig.decisiveThreshold) {
       return 'left';
     }
@@ -317,10 +324,18 @@ class CaseService {
     return 'draw';
   }
 
-  /// 전체 사건 실시간 구독 (최신순)
-  Stream<List<CaseRecord>> watchCases() {
-    return _cases
-        .orderBy('createdAt', descending: true)
+  String _determineWinner(CaseRecord current) => determineWinnerCounts(
+        leftVotes: current.leftVotes,
+        rightVotes: current.rightVotes,
+      );
+
+  /// 전체 사건 실시간 구독 (최신순, pageLimit으로 읽기량 제어 가능)
+  Stream<List<CaseRecord>> watchCases({int? limit}) {
+    Query<JsonMap> query = _cases.orderBy('createdAt', descending: true);
+    if (limit != null && limit > 0) {
+      query = query.limit(limit);
+    }
+    return query
         .snapshots()
         .map((snap) => snap.docs.map(CaseRecord.fromDoc).toList());
   }
@@ -633,7 +648,7 @@ class CaseService {
         .map((snap) => snap.docs.map(CaseComment.fromDoc).toList());
   }
 
-  /// 판결 근거 댓글 또는 대댓글 작성 (+15 XP, +5 P)
+  /// 판결 근거 댓글 또는 대댓글 작성 (+15 XP, +5 P + 관련 유저 인앱 알림 발송)
   Future<void> addComment({
     required String caseId,
     required String authorUid,
@@ -670,6 +685,63 @@ class CaseService {
       xpDelta: PolicyConfig.xpComment,
       pointsDelta: PolicyConfig.pointsComment,
     );
+
+    // 대댓글/새 댓글 인앱 알림 발송
+    await _dispatchCommentNotifications(
+      caseId: caseId,
+      authorUid: authorUid,
+      authorNickname: authorNickname,
+      content: trimmed,
+      parentId: parentId,
+    );
+  }
+
+  Future<void> _dispatchCommentNotifications({
+    required String caseId,
+    required String authorUid,
+    required String authorNickname,
+    required String content,
+    String? parentId,
+  }) async {
+    try {
+      final preview =
+          content.length > 44 ? '${content.substring(0, 44)}…' : content;
+      final caseSnap = await _cases.doc(caseId).get();
+      if (!caseSnap.exists) return;
+      final caseRecord = CaseRecord.fromDoc(caseSnap);
+
+      String? parentAuthorUid;
+      if (parentId != null && parentId.isNotEmpty) {
+        final parentSnap =
+            await _cases.doc(caseId).collection('comments').doc(parentId).get();
+        parentAuthorUid = parentSnap.data()?['authorUid'] as String?;
+        if (parentAuthorUid != null && parentAuthorUid.isNotEmpty) {
+          await NotificationService.instance.sendNotification(
+            recipientUid: parentAuthorUid,
+            actorUid: authorUid,
+            type: 'reply',
+            caseId: caseId,
+            title: '$authorNickname님이 내 댓글에 답글을 남겼어요',
+            body: '"$preview" · ${caseRecord.title}',
+            actorNickname: authorNickname,
+          );
+        }
+      }
+
+      if (caseRecord.authorUid != parentAuthorUid) {
+        await NotificationService.instance.sendNotification(
+          recipientUid: caseRecord.authorUid,
+          actorUid: authorUid,
+          type: 'comment',
+          caseId: caseId,
+          title: '$authorNickname님이 내 사건에 의견을 남겼어요',
+          body: '"$preview" · ${caseRecord.title}',
+          actorNickname: authorNickname,
+        );
+      }
+    } catch (e) {
+      debugPrint('댓글 알림 처리 건너뜀: $e');
+    }
   }
 
   /// 본인 댓글 삭제 (부모 댓글이면 하위 대댓글도 함께 정리 + 댓글 카운트 차감)
@@ -737,9 +809,33 @@ class CaseService {
     });
   }
 
+  Future<void> _notifyCaseClosed(CaseRecord closed) async {
+    try {
+      final votersSnap = await _cases.doc(closed.id).collection('votes').get();
+      final targets = <String>{
+        if (closed.authorUid.isNotEmpty) closed.authorUid,
+        ...votersSnap.docs.map((d) => d.id),
+      };
+      for (final targetUid in targets) {
+        await NotificationService.instance.sendNotification(
+          recipientUid: targetUid,
+          actorUid: '__system__',
+          type: 'closed',
+          caseId: closed.id,
+          title: '참여한 사건의 판정이 종결되었습니다',
+          body: '${closed.title} → ${closed.statusLabel}',
+        );
+      }
+    } catch (e) {
+      debugPrint('종결 알림 전송 건너뜀: $e');
+    }
+  }
+
   /// 작성자 즉시 마감 (시연 및 조기 종결용)
   Future<CaseRecord?> closeCaseNow(String caseId) async {
     final caseRef = _cases.doc(caseId);
+    var didClose = false;
+
     await _db.runTransaction((tx) async {
       final fresh = await tx.get(caseRef);
       if (!fresh.exists) return;
@@ -754,10 +850,16 @@ class CaseService {
         'expiresAt': Timestamp.fromDate(DateTime.now()),
         'closedAt': FieldValue.serverTimestamp(),
       });
+      didClose = true;
     });
 
     final updated = await caseRef.get();
-    return updated.exists ? CaseRecord.fromDoc(updated) : null;
+    if (!updated.exists) return null;
+    final closedRecord = CaseRecord.fromDoc(updated);
+    if (didClose) {
+      await _notifyCaseClosed(closedRecord);
+    }
+    return closedRecord;
   }
 
   /// 마감 시간이 지난 사건을 closed 상태로 확정하고 60:40 규칙으로 승자 판정
@@ -771,6 +873,7 @@ class CaseService {
       return record;
     }
 
+    var didClose = false;
     await _db.runTransaction((tx) async {
       final fresh = await tx.get(caseRef);
       if (!fresh.exists) return;
@@ -784,10 +887,16 @@ class CaseService {
         'winner': winner,
         'closedAt': FieldValue.serverTimestamp(),
       });
+      didClose = true;
     });
 
     final updated = await caseRef.get();
-    return updated.exists ? CaseRecord.fromDoc(updated) : null;
+    if (!updated.exists) return null;
+    final closedRecord = CaseRecord.fromDoc(updated);
+    if (didClose) {
+      await _notifyCaseClosed(closedRecord);
+    }
+    return closedRecord;
   }
 
   /// 내가 투표한 사건 중 마감된 건을 자동 정산해 적중률·연속 적중 스트릭·보너스 반영

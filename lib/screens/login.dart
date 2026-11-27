@@ -1,6 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../data/mock_data.dart';
 import '../services/auth_service.dart';
 import '../services/moderation_service.dart';
 import '../services/user_service.dart';
@@ -8,6 +7,7 @@ import '../theme/app_colors.dart';
 import '../widgets/moderation_notice.dart';
 import 'home_page.dart';
 import 'onboarding_page.dart';
+import '../theme/app_theme.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -38,8 +38,7 @@ class _LoginPageState extends State<LoginPage> {
     final profile = await UserService.instance.ensureUserDocument(user);
     if (!mounted) return;
 
-    appStore.user.nickname = profile.nickname;
-    appStore.user.points = profile.points;
+    ThemeController.instance.setDark(profile.darkMode);
 
     Navigator.pushReplacement(
       context,
@@ -343,8 +342,6 @@ class _SignUpPageState extends State<SignUpPage> {
       }
       if (!mounted) return;
 
-      appStore.user.nickname = nickname;
-      appStore.user.points = 0;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const OnboardingPage()),
@@ -481,7 +478,7 @@ class _HammerAnimationState extends State<HammerAnimation>
               width: 116,
               height: 16,
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(.32),
+                color: AppColors.primary.withValues(alpha: 32),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),

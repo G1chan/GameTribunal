@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'data/mock_data.dart';
 import 'firebase_options.dart';
 import 'screens/home_page.dart';
 import 'screens/login.dart';
@@ -50,7 +49,7 @@ class GameTribunalApp extends StatelessWidget {
   }
 }
 
-/// 앱 시작 시 로그인 세션과 Firestore 유저 프로필을 확인해 첫 화면을 결정합니다.
+/// 앱 시작 시 로그인 세션과 Firestore 유저 프로필(테마 포함)을 복원합니다.
 class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
@@ -69,11 +68,13 @@ class _AuthGateState extends State<_AuthGate> {
 
   Future<UserProfile?> _loadInitialProfile() async {
     final user = await AuthService.instance.authStateChanges.first;
-    if (user == null) return null;
+    if (user == null) {
+      ThemeController.instance.setDark(true);
+      return null;
+    }
 
     final profile = await UserService.instance.ensureUserDocument(user);
-    appStore.user.nickname = profile.nickname;
-    appStore.user.points = profile.points;
+    ThemeController.instance.setDark(profile.darkMode);
     return profile;
   }
 

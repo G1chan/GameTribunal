@@ -99,7 +99,7 @@ class UserProfile {
     this.dailyVotesCount = 0,
     this.dailyMissionClaimed = false,
     this.bookmarkedCaseIds = const <String>[],
-    this.darkMode = false,
+    this.darkMode = true,
   }) : totalEarnedPoints = totalEarnedPoints ?? points;
 
   final String uid;
@@ -255,7 +255,7 @@ class UserProfile {
               ?.map((e) => e.toString())
               .toList() ??
           const <String>[],
-      darkMode: (data['darkMode'] as bool?) ?? false,
+      darkMode: (data['darkMode'] as bool?) ?? true,
     );
   }
 }
@@ -314,7 +314,7 @@ class UserService {
       'dailyVotesCount': 0,
       'dailyMissionClaimed': false,
       'bookmarkedCaseIds': <String>[],
-      'darkMode': false,
+      'darkMode': true,
       'onboardingCompleted': false,
       'notificationsEnabled': true,
       'createdAt': FieldValue.serverTimestamp(),

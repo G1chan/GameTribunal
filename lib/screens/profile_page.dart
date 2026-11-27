@@ -1,14 +1,14 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import '../data/mock_data.dart';
-import '../services/ai_moderation_engine.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/video_upload_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_download_dialog.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/app_header.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/user_avatar.dart';
 import 'account_settings_page.dart';
 import 'login.dart';
@@ -36,8 +36,6 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _isLoggingOut = true);
     try {
       await AuthService.instance.signOut();
-      appStore.user.nickname = '소환사의 판결';
-      appStore.user.points = 0;
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
@@ -330,13 +328,13 @@ class _ProfilePageState extends State<ProfilePage> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const ProfileSkeleton();
           }
 
           final profile = snapshot.data ??
               UserProfile(
                 uid: firebaseUser.uid,
-                nickname: firebaseUser.displayName ?? appStore.user.nickname,
+                nickname: firebaseUser.displayName ?? '신규 배심원',
                 email: firebaseUser.email ?? '',
                 favoriteGames: const <String>[],
                 xp: 0,
@@ -455,7 +453,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                'Lv.${profile.level} · ${profile.title}',
+                                'Lv.${profile.level} ·${profile.title}',
                                 style: TextStyle(
                                   color: context.mutedColor,
                                   fontWeight: FontWeight.w700,
@@ -544,7 +542,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         Text(
-                          '${progress.currentXp} / ${progress.nextLevelXp} XP',
+                          '${progress.currentXp} /${progress.nextLevelXp} XP',
                           style: TextStyle(
                             color: context.mutedColor,
                             fontSize: 11,
@@ -600,7 +598,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         Text(
-                          '${profile.todayVotesCount} / ${PolicyConfig.dailyMissionTarget}건',
+                          '${profile.todayVotesCount} /${PolicyConfig.dailyMissionTarget}건',
                           style: const TextStyle(
                             color: AppColors.red,
                             fontWeight: FontWeight.w900,
@@ -832,7 +830,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             subtitle: Text(
                               account == null
                                   ? '미등록 · 탭하여 닉네임과 티어를 등록하세요'
-                                  : '${account.gameId} · ${account.tier}',
+                                  : '${account.gameId} ·${account.tier}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: account == null
@@ -926,24 +924,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 subtitle: const Text('Chrome: Gemma 4 E2B 웹 모델 · 약 2GB'),
                 trailing: const Icon(Icons.download_rounded),
                 onTap: () async {
-                  try {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content:
-                            Text('AI 모델 다운로드를 시작합니다. 완료까지 기다려 주세요.'),
-                      ),
-                    );
-                    await AiModerationEngine.instance.downloadAndActivate();
-                    if (!context.mounted) return;
+                  final ready = await showAiModelDownloadDialog(context);
+                  if (ready && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Gemma AI 엔진이 활성화되었습니다.'),
                       ),
-                    );
-                  } catch (error) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('AI 모델 준비 실패: $error')),
                     );
                   }
                 },

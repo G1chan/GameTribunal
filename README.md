@@ -9,7 +9,7 @@
 
 **겜문철(GameTribunal)**은 팀 게임 중 발생하는 분쟁과 과실 논란을 **리플레이 영상 정밀 판독**, **편승 효과를 차단한 블라인드 1인 1표 투표**, **60:40 유효 판결 자동 정산**, **온디바이스 AI 판결 요약**으로 공정하게 판정하는 크로스플랫폼 애플리케이션입니다.
 
-단순 투표를 넘어 활동 보상(XP/포인트), 일일 배심원 미션과 연속 적중 스트릭, 레벨에 따라 자동 진화하는 아바타 테두리, 누적 순위를 해치지 않는 포인트 상점 및 보관함까지 하나의 순환형 게이미피케이션 생태계로 설계되었습니다.
+단순 투표를 넘어 활동 보상(XP/포인트), 일일 배심원 미션과 연속 적중 스트릭, 레벨에 따라 자동 진화하는 아바타 테두리, 누적 순위를 해치지 않는 포인트 상점 및 보관함, 인앱·FCM 푸시 알림까지 하나의 순환형 게이미피케이션 생태계로 설계되었습니다.
 
 ---
 
@@ -19,11 +19,11 @@
 * **소셜 및 이메일 인증:** 이메일/비밀번호 로그인·회원가입과 Google 소셜 로그인 지원
 * **관심 종목 온보딩:** 리그 오브 레전드, 발로란트, 오버워치 2 중 관심 종목(최대 3개) 설정 → 홈 피드 우선 추천 및 알림 기준 연동
 * **프로필 사진 & 게임 티어 등록:** Cloudinary 기반 프로필 사진 업로드/초기화 및 종목별 인게임 닉네임(`닉네임#태그`)·티어(언랭크~마스터 이상) 관리
-* **다크 / 라이트 모드 전환:** 옵시디언 퍼플 다크 테마를 기본으로 제공하며, MY 탭 스위치로 라이트·다크 모드를 실시간 전환하고 Firestore에 설정 유지
+* **다크 / 라이트 모드 전환 및 복원:** 옵시디언 퍼플 다크 테마를 기본으로 제공하며, MY 탭 스위치로 라이트·다크 모드를 실시간 전환하고 재접속 시 Firestore(`darkMode`)에서 설정 자동 복원
 * **계정 설정:** 상점 `닉네임 변경권` 소모 방식의 닉네임 변경(AI 모더레이션 적용), 비밀번호 재설정 메일 발송, 회원 탈퇴 지원
 
 ### 2. 홈 피드 · 검색 · 사건 제보
-* **3단계 우선순위 피드 정렬:** `1순위 긴급 재판 부스트 사건` → `2순위 내 관심 종목 사건` → `3순위 최신순` 실시간 스트림 정렬
+* **3단계 우선순위 피드 정렬 & 무한 스크롤 페이지네이션:** `1순위 긴급 재판 부스트 사건` → `2순위 내 관심 종목 사건` → `3순위 최신순` 실시간 스트림 정렬 및 15건 단위 무한 스크롤 페이지네이션(스트림 캐싱으로 읽기 비용 최적화)
 * **통합 키워드 검색 & 필터:** 제목, 게임명, 티어, 유형, 설명, 제보자 닉네임, 쟁점 해시태그(`#진입 타이밍` 등) 실시간 검색 및 `LIVE` 필터 제공
 * **사건 제보 & 영상 업로드:** 양측(Party A 신청인 / Party B 상대방) 진술, 쟁점 태그, 투표 마감 시간 설정 및 최대 100MB 증거 영상 업로드(썸네일 자동 생성)
 * **온디바이스 AI 클린 모더레이션:** 사건 제목·진술·댓글·닉네임 입력 시 내장 Gemma AI 모델로 비속어 및 비방 표현을 사전 검열
@@ -38,16 +38,21 @@
 ### 4. 실시간 토론 스레드 & 배심원 미니 프로필
 * **입장별 토론 & 대댓글:** 모든 의견에 `신청인 과실 / 상대방 과실` 입장을 명시하고, 원댓글 아래 들여쓰기된 대댓글 스레드 지원
 * **배타적 공감·비공감 & 신고/숨김:** 공감(좋아요)과 비공감(싫어요) 상호 전환 처리, 부모 댓글 삭제 시 하위 대댓글 연쇄 삭제, 타인 댓글·대댓글 신고 및 누적 3회 이상 자동 숨김 처리
-* **배심원 미니 프로필 바텀시트:** 홈 피드·사건 상세·실시간 토론·판정 리포트에서 작성자 아바타/닉네임을 탭하면 레벨 테두리, 장착 칭호, 연속 적중 스트릭, 판정 적중률, 누적 포인트, 등록된 게임 티어를 팝업으로 확인
+* **배심원 미니 프로필 바텀시트:** 홈 피드·사건 상세·실시간 토론·판정 리포트·랭킹(단상/리스트/내 순위)에서 배심원 아바타/닉네임을 탭하면 레벨 테두리, 장착 칭호, 연속 적중 스트릭, 판정 적중률, 누적 포인트, 등록된 게임 티어를 팝업으로 확인
 * **전 화면 실시간 프로필 동기화:** `LiveUserAvatar`와 `LiveUserTitleBadge`가 작성자 UID를 직접 구독하여 프사·레벨 테두리·장착 칭호 변경 시 과거 댓글과 홈 카드까지 즉시 반영
 
-### 5. 자동 정산 & AI 판정 시각화 리포트
+### 5. 2탭 알림 센터 & FCM 푸시 알림
+* **내 활동 인앱 알림:** 내 댓글의 대댓글(`답글`), 내가 제보한 사건의 새 의견(`새 의견`), 내가 제보·투표한 사건의 마감(`판정 종결`) 알림 실시간 수신 및 탭 시 해당 사건 바로 이동
+* **관심 종목 새 사건 알림:** 설정한 관심 게임 종목에 새 사건·영상이 올라올 때 안 읽은 알림 배지 및 썸네일 카드 표시
+* **FCM 브라우저·기기 푸시 알림:** 알림 센터 상단 원클릭 푸시 활성화, 포그라운드 스낵바 알림 및 Service Worker(`web/firebase-messaging-sw.js`) 백그라운드 푸시 수신 지원
+
+### 6. 자동 정산 & AI 판정 시각화 리포트
 * **60:40 유효 판결 정산 & 연속 적중 스트릭:** 마감 시 최소 참여 인원을 충족하고 60:40 이상으로 갈린 경우에만 유효 판결 확정(미달 시 '치열한 논쟁(보류)' 처리). 앱 진입 시 미정산 투표 자동 정산, 적중 보너스 지급 및 연속 적중(`currentStreak` / `bestStreak`) 자동 갱신
-* **온디바이스 AI 3줄 판결 요약:** 양측 진술·투표 비율·공감 상위 댓글을 분석해 `핵심 쟁점 · 신청인 요지 · 상대방 요지 · 종합 결론`을 생성 (Gemma 모델 활성화 시 온디바이스 추론, 미설치 시 구조화 빠른 요약 폴백 및 리포트 내 즉시 모델 활성화 지원)
+* **온디바이스 AI 3줄 판결 요약 & 다운로드 진행률 UI:** 양측 진술·투표 비율·공감 상위 댓글을 분석해 `핵심 쟁점 · 신청인 요지 · 상대방 요지 · 종합 결론`을 생성하며, Gemma 모델 다운로드 시 단계별 진행률 다이얼로그 제공
 * **데이터 시각화 & 티어 비교:** `fl_chart` 도넛 차트로 최종 과실 비율을 시각화하고, **전체 배심원 vs 상위 티어(플래티넘 이상) 배심원 vs 토론 댓글 입장 비율** 비교 분석 및 공감 상위 핵심 의견 요약 제공
 * **이미지 저장 & 결과 공유:** AI 3줄 요약이 포함된 리포트 요약 카드를 고해상도 PNG 이미지로 캡처해 저장·공유하거나 텍스트 요약본 외부 공유
 
-### 6. 게이미피케이션 · 미션 · 랭킹 · 포인트 상점 & 보관함
+### 7. 게이미피케이션 · 미션 · 랭킹 · 포인트 상점 & 보관함
 * **활동 보상 및 레벨 시스템:**
   * 사건 제보 `+30 XP / +10 P` · 토론 댓글 `+15 XP / +5 P` · 판정 투표 `+10 XP / +5 P` · 유효 판결 적중 `+20 XP / +15 P`
   * 레벨업 공식: `nextLevelXp = currentLevel * 100`
@@ -71,14 +76,16 @@
 
 | 분류 | 기술 / 패키지 | 역할 |
 | :--- | :--- | :--- |
-| **Framework** | `Flutter` (Dart) | Web(Chrome) · Android · iOS 크로스플랫폼 UI, 다크/라이트 테마 및 상태 처리 |
+| **Framework & Hosting** | `Flutter` (Dart), `Firebase Hosting` | Web(Chrome) · Android · iOS 크로스플랫폼 UI, 다크/라이트 테마, Shimmer 스켈레톤 로딩 및 웹 호스팅 배포 |
 | **Auth** | `firebase_auth`, `google_sign_in` | 이메일·구글 로그인, 세션 관리, 비밀번호 재설정, 회원 탈퇴 |
-| **Database** | `cloud_firestore` | 실시간 스트림 동기화, 1인 1표·상점 결제·신고·미션 트랜잭션, 배치 삭제 |
+| **Database & Server** | `cloud_firestore`, `Cloud Functions` | 실시간 스트림 동기화, 1인 1표·상점 결제·신고·미션 트랜잭션, 서버리스 자동 마감 및 푸시 트리거 |
+| **Push Messaging** | `firebase_messaging` | 인앱 활동 알림 연동, 브라우저·기기 푸시 권한 등록 및 포그라운드/백그라운드 알림 수신 |
 | **On-Device AI** | `flutter_edge_ai`, `flutter_edge_ai_litertlm` | Gemma 4 E2B(웹) / Gemma 3 1B(모바일) 온디바이스 유해성 판별 및 판정 리포트 3줄 요약 |
 | **Media Cloud** | `Cloudinary API`, `http`, `file_picker` | 증거 영상(최대 100MB)·프로필 사진(최대 10MB) 업로드 및 자동 썸네일 생성 |
 | **Video Player** | `video_player`, `chewie` | 네트워크 영상 스트리밍, 커스텀 배속·구간 반복·외부 타임스탬프 점프 |
 | **Visualization** | `fl_chart` | 판정 리포트 과실 비율 도넛 차트 렌더링 |
 | **Export & Share** | `screenshot`, `share_plus`, `cross_file` | 리포트 위젯(AI 요약 포함) PNG 캡처 저장 및 결과 텍스트/이미지 외부 공유 |
+| **Testing** | `flutter_test` | 60:40 유효 판결 규칙, 레벨업 XP 곡선, 적중률·일일 미션·상위 티어 단위 테스트 |
 
 ---
 
@@ -105,7 +112,7 @@ secure_url 반환 (영상은 확장자 .jpg 치환으로 자동 썸네일 URL �
       ├── 오늘 투표 수 누적 ──▶ 3건 달성 시 일일 미션 보상 (+25 P / +30 XP)
       │
       ▼
-마감 시간 도래 또는 작성자 [즉시 마감] → 60:40 규칙으로 승자 판정 (left / right / draw)
+마감 시간 도래 또는 작성자 [즉시 마감] → 60:40 규칙으로 승자 판정 + 종결 알림 발송
       │
       ▼
 [HomePage 진입] settleMyVotes() 자동 정산 → 적중 시 보너스 (+20 XP / +15 P) & 연속 적중 스트릭 갱신
@@ -120,7 +127,7 @@ secure_url 반환 (영상은 확장자 .jpg 치환으로 자동 썸네일 URL �
 [판정 리포트 요약 요청] ─────────────▶ [VerdictReportPage] ──▶ [AiModerationEngine.summarizeVerdict()]
                                                                        │
                                            ┌─ Gemma 모델 활성화 시: 온디바이스 JSON 3줄 요약 추론
-                                           └─ 모델 미설치 시: 구조화 빠른 요약 폴백 + 즉시 다운로드 유도
+                                           └─ 모델 미설치 시: 구조화 빠른 요약 폴백 + 진행률 다이얼로그
 ```
 
 ---
@@ -131,14 +138,16 @@ secure_url 반환 (영상은 확장자 .jpg 치환으로 자동 썸네일 URL �
 firestore
 ├── users/{uid}
 │   ├── nickname, email, photoUrl, favoriteGames[], onboardingCompleted, darkMode
-│   ├── notificationsEnabled, lastNotificationReadAt, bookmarkedCaseIds[]
+│   ├── notificationsEnabled, lastNotificationReadAt, bookmarkedCaseIds[], fcmTokens[]
 │   ├── gameAccounts: { "리그 오브 레전드": { gameId, tier }, ... }
 │   ├── xp, level, points (사용 가능), totalEarnedPoints (랭킹 기준 누적)
 │   ├── totalVotes, validJudgedCount, hitCount, currentStreak, bestStreak
 │   ├── dailyMissionDate, dailyVotesCount, dailyMissionClaimed
 │   ├── ownedTitles[], equippedTitleId, nicknameTickets, boostTickets
-│   └── myVotes/{caseId}
-│       └── caseId, caseTitle, caseGame, choice, settled, caseWinner, votedAt
+│   ├── myVotes/{caseId}
+│   │   └── caseId, caseTitle, caseGame, choice, settled, caseWinner, votedAt
+│   └── notifications/{notifId}
+│       └── type ('reply' | 'comment' | 'closed'), caseId, title, body, actorNickname, read, createdAt
 │
 ├── cases/{caseId}
 │   ├── authorUid, authorNickname, game, title, type, tier, description
@@ -161,64 +170,78 @@ firestore
 ```text
 lib/
 ├── theme/
-│   ├── app_colors.dart           # 옵시디언 퍼플 브랜드 컬러 및 시맨틱 팔레트
-│   └── app_theme.dart            # 다크/라이트 ThemeData, ThemeController, 컨텍스트 색상 확장
+│   ├── app_colors.dart               # 옵시디언 퍼플 브랜드 컬러 및 시맨틱 팔레트
+│   └── app_theme.dart                # 다크/라이트 ThemeData, ThemeController, 컨텍스트 색상 확장
 ├── models/
-│   ├── case_model.dart           # 레거시 호환 사건 모델
-│   └── shop_item.dart            # 포인트 상점 상품 카탈로그 및 메타데이터
+│   ├── case_model.dart               # 레거시 호환 사건 모델
+│   └── shop_item.dart                # 포인트 상점 상품 카탈로그 및 메타데이터
 ├── services/
-│   ├── auth_service.dart         # Firebase Auth 및 Google 로그인 처리
-│   ├── user_service.dart         # 프로필, 보상/레벨, 스트릭, 일일 미션, 북마크, 다크 모드, 상점 결제
-│   ├── case_service.dart         # 사건 CRUD, 블라인드 투표, 부스트, 대댓글·비공감, 신고/숨김, 자동 정산
-│   ├── video_upload_service.dart # Cloudinary 영상·이미지 업로드 및 썸네일 생성
-│   ├── ai_moderation_engine.dart # Gemma 온디바이스 AI 모더레이션 및 판정 리포트 3줄 요약 엔진
-│   └── moderation_service.dart   # 텍스트 유해성 필터링 파이프라인
+│   ├── auth_service.dart             # Firebase Auth 및 Google 로그인 처리
+│   ├── user_service.dart             # 프로필, 보상/레벨, 스트릭, 일일 미션, 북마크, 다크 모드, 상점 결제
+│   ├── case_service.dart             # 사건 CRUD, 페이지네이션 스트림, 투표, 대댓글·비공감, 신고/숨김, 정산
+│   ├── notification_service.dart     # 대댓글·새 의견·판정 종결 개인 인앱 알림 CRUD
+│   ├── push_notification_service.dart# FCM 권한 요청, 디바이스 등록 및 포그라운드 수신 처리
+│   ├── video_upload_service.dart     # Cloudinary 영상·이미지 업로드 및 썸네일 생성
+│   ├── ai_moderation_engine.dart     # Gemma 온디바이스 AI 모더레이션 및 판정 리포트 3줄 요약 엔진
+│   └── moderation_service.dart       # 텍스트 유해성 필터링 파이프라인
 ├── widgets/
-│   ├── user_avatar.dart          # LevelUserAvatar(4단계 애니메이션 테두리), UserTitleBadge, Live 위젯
-│   ├── juror_profile_sheet.dart  # 배심원 미니 프로필 바텀시트 (레벨 테두리·칭호·스트릭·게임 티어)
-│   ├── case_video_player.dart    # 배속·탐색·반복·외부 타임스탬프 점프 지원 영상 플레이어
-│   ├── app_header.dart           # 공통 상단 앱바 및 알림 연동
-│   ├── app_bottom_navigation.dart# 하단 5탭 내비게이션
-│   └── verdict_bar.dart          # 과실 비율 게이지 바
+│   ├── user_avatar.dart              # LevelUserAvatar(4단계 애니메이션 테두리), UserTitleBadge, Live 위젯
+│   ├── juror_profile_sheet.dart      # 배심원 미니 프로필 바텀시트 (레벨 테두리·칭호·스트릭·게임 티어)
+│   ├── skeleton_loader.dart          # 홈 피드·프로필·랭킹 Shimmer 스켈레톤 로딩 위젯
+│   ├── ai_download_dialog.dart       # Gemma 모델 다운로드 단계별 진행률 다이얼로그
+│   ├── case_video_player.dart        # 배속·탐색·반복·외부 타임스탬프 점프 지원 영상 플레이어
+│   ├── app_header.dart               # 공통 상단 앱바 및 2탭 통합 알림 센터 · 푸시 활성화 배너
+│   ├── app_bottom_navigation.dart    # 하단 5탭 내비게이션
+│   └── verdict_bar.dart              # 과실 비율 게이지 바
 └── screens/
     ├── login.dart / onboarding_page.dart
-    ├── home_page.dart            # 실시간 피드, 일일 미션 배너, 키워드 검색, 부스트/관심종목 우선 정렬
+    ├── home_page.dart                # 무한 스크롤 피드, 일일 미션 배너, 키워드 검색, 부스트/관심종목 정렬
     ├── case_create_step1_page.dart ... # 사건 제보 및 영상 첨부 플로우
-    ├── case_detail_page.dart     # 영상 판독, 블라인드 투표, 북마크/신고, 인라인 타임스탬프 댓글
-    ├── discussion_page.dart      # 실시간 토론, 대댓글 스레드, 공감/비공감, 신고/숨김, 미니 프로필
-    ├── verdict_report_page.dart  # fl_chart 도넛 차트, AI 3줄 판결 요약, 상위 티어 비교, 캡처/공유
-    ├── ranking_page.dart         # 명예의 전당(누적 P) / 배심원 랭킹(활동 XP) & Top 3 단상
-    ├── shop_page.dart            # 포인트 상점 & 내 보관함(티켓·칭호 장착·테두리 도감)
-    ├── my_cases_page.dart        # 내 사건 및 활동 내역 (제보한 사건 · 판정한 사건 · 북마크 3탭)
-    ├── profile_page.dart         # 프사 업로드, 스트릭, 일일 미션, 다크 모드 스위치, 게임 티어 관리
-    └── account_settings_page.dart# 닉네임 변경권 사용, 비밀번호 재설정, 회원 탈퇴
+    ├── case_detail_page.dart         # 영상 판독, 블라인드 투표, 북마크/신고, 인라인 타임스탬프 댓글
+    ├── discussion_page.dart          # 실시간 토론, 대댓글 스레드, 공감/비공감, 신고/숨김, 미니 프로필
+    ├── verdict_report_page.dart      # fl_chart 도넛 차트, AI 3줄 판결 요약, 상위 티어 비교, 캡처/공유
+    ├── ranking_page.dart             # 명예의 전당(누적 P) / 배심원 랭킹(활동 XP) & Top 3 단상 · 미니 프로필
+    ├── shop_page.dart                # 포인트 상점 & 내 보관함(티켓·칭호 장착·테두리 도감)
+    ├── my_cases_page.dart            # 내 사건 및 활동 내역 (제보한 사건 · 판정한 사건 · 북마크 3탭)
+    ├── profile_page.dart             # 프사 업로드, 스트릭, 일일 미션, 다크 모드 스위치, 게임 티어 관리
+    └── account_settings_page.dart    # 닉네임 변경권 사용, 비밀번호 재설정, 회원 탈퇴
+test/
+└── domain_policy_test.dart           # 60:40 판결, 레벨업 XP, 적중률, 일일 미션, 상위 티어 단위 테스트
+functions/
+└── index.js                          # 만료 사건 서버 자동 마감 및 FCM 멀티캐스트 푸시 발송 함수
+web/
+└── firebase-messaging-sw.js          # 백그라운드 웹 푸시 수신용 Service Worker
 ```
 
 ---
 
-## 로컬 실행 방법
+## 로컬 실행 및 웹 배포 방법
 
-### 1. 사전 준비
-* Flutter SDK 설치 (Dart 3.x 호환)
-* Firebase 프로젝트 연동 (`firebase_options.dart` 구성 완료 상태)
-* `assets/images/shop/` 경로에 상점 아트워크 이미지 배치:
-  * `nickname_ticket.png` · `case_boost.png` · `title_hawk.png` · `title_judge.png` · `title_chief.png`
-
-### 2. 패키지 설치 및 실행
+### 1. 패키지 설치 · 테스트 · 로컬 실행
 ```bash
 # 의존성 설치
 flutter pub get
 
-# 정적 분석 확인
+# 정적 분석 및 핵심 도메인 단위 테스트
 flutter analyze
+flutter test test/domain_policy_test.dart
 
-# Chrome 웹 실행
+# Chrome 웹 로컬 실행
 flutter run -d chrome
+```
+
+### 2. Firebase Hosting 프로덕션 배포
+```bash
+# 프로덕션 웹 빌드 (웹 푸시 키 포함 시 --dart-define=FCM_VAPID_KEY=<키> 추가)
+flutter build web --release
+
+# Firebase Hosting 배포
+firebase deploy --only hosting
 ```
 
 ---
 
-## 배포 전 체크리스트
+## 운영 체크리스트
 
-* **Firestore 보안 규칙 적용:** 개발용 테스트 모드 해제 후 인증 사용자 기반 읽기/쓰기, 본인 소유 리소스(`users/{uid}`, 본인 작성 사건·댓글) 보호, `reports` 생성 전용 및 `reportedBy` 필드 갱신 규칙을 포함한 `Firestore Rules` 게시
-* **판정 · 신고 정책 임계값 조정:** 실제 서비스 배포 시 `PolicyConfig`(`lib/services/user_service.dart`)의 `minVotesForValidCase`, `minValidJudgedForAccuracy`, `reportHideThreshold` 상수를 운영 기준에 맞게 조정
+* **Firestore 보안 규칙:** `users/{uid}/notifications`, `reports`, `cases`, `votes`, `comments` 권한이 반영된 최종 `Firestore Rules` 게시 완료 여부 확인
+* **판정 · 신고 정책 임계값:** 실제 서비스 확장 시 `PolicyConfig`(`lib/services/user_service.dart`)의 `minVotesForValidCase`, `minValidJudgedForAccuracy`, `reportHideThreshold` 상수를 운영 규모에 맞게 조정

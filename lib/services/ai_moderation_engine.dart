@@ -5,6 +5,38 @@ import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 import '../models/moderation_result.dart';
 import 'moderation_service.dart';
 
+/// 온디바이스 Gemma AI 모델 다운로드/준비 상태
+enum AiEngineStage {
+  idle,
+  initializing,
+  downloading,
+  ready,
+  error,
+}
+
+class AiEngineStatus {
+  const AiEngineStatus({
+    required this.stage,
+    required this.message,
+    this.progress,
+    this.errorDetail,
+  });
+
+  const AiEngineStatus.idle()
+      : stage = AiEngineStage.idle,
+        message = '온디바이스 Gemma AI 모델이 아직 다운로드되지 않았습니다.',
+        progress = 0,
+        errorDetail = null;
+
+  final AiEngineStage stage;
+  final String message;
+  final double? progress; // null이면 진행 중(indeterminate)
+  final String? errorDetail;
+
+  bool get isBusy =>
+      stage == AiEngineStage.initializing || stage == AiEngineStage.downloading;
+}
+
 /// 판정 리포트 AI 3줄 요약 결과 모델
 class VerdictAiSummary {
   const VerdictAiSummary({
@@ -29,8 +61,14 @@ class VerdictAiSummary {
 class AiModerationEngine implements FlutterEdgeAiModerator {
   AiModerationEngine._();
   static final instance = AiModerationEngine._();
+
+  final ValueNotifier<AiEngineStatus> status = ValueNotifier<AiEngineStatus>(
+    const AiEngineStatus.idle(),
+  );
+
   bool _initialized = false;
   bool _modelReady = false;
+  Future<void>? _activeDownload;
 
   static const _modelRepository = 'litert-community/Gemma3-1B-IT';
   static const _modelFile =
@@ -53,31 +91,76 @@ class AiModerationEngine implements FlutterEdgeAiModerator {
   }
 
   /// 사용자가 명시적으로 요청했을 때만 대용량 모델을 내려받아 활성화합니다.
-  Future<void> downloadAndActivate() async {
-    await initialize();
-    if (kIsWeb) {
-      await FlutterEdgeAi.installModel(
-        modelType: ModelType.gemma4,
-        fileType: ModelFileType.litertlm,
-      ).fromNetwork(_webModelUrl).install();
-    } else {
-      if (_huggingFaceToken.isEmpty) {
-        throw StateError(
-          '모바일에서는 GEMMA_HF_TOKEN 설정 후 Gemma 3 모델을 다운로드할 수 있습니다.',
-        );
-      }
-      await FlutterEdgeAi.installModel(
-        modelType: ModelType.gemmaIt,
-        fileType: ModelFileType.litertlm,
-      )
-          .fromHuggingFace(
-            _modelRepository,
-            file: _modelFile,
-            token: _huggingFaceToken,
-          )
-          .install();
+  Future<void> downloadAndActivate() {
+    if (_modelReady) {
+      status.value = const AiEngineStatus(
+        stage: AiEngineStage.ready,
+        message: 'Gemma 온디바이스 AI 엔진이 이미 활성화되어 있습니다.',
+        progress: 1.0,
+      );
+      return Future<void>.value();
     }
-    _modelReady = true;
+    _activeDownload ??= _runDownload().whenComplete(() {
+      _activeDownload = null;
+    });
+    return _activeDownload!;
+  }
+
+  Future<void> _runDownload() async {
+    try {
+      status.value = const AiEngineStatus(
+        stage: AiEngineStage.initializing,
+        message: '1/2 · LiteRT-LM 추론 엔진 초기화 중...',
+        progress: 0.15,
+      );
+      await initialize();
+
+      status.value = const AiEngineStatus(
+        stage: AiEngineStage.downloading,
+        message: kIsWeb
+            ? '2/2 · Gemma 4 E2B 웹 모델 다운로드 및 브라우저 캐싱 중 (약 2GB)...'
+            : '2/2 · Gemma 3 1B 모델 다운로드 및 기기 저장 중 (약 0.6GB)...',
+        progress: null,
+      );
+
+      if (kIsWeb) {
+        await FlutterEdgeAi.installModel(
+          modelType: ModelType.gemma4,
+          fileType: ModelFileType.litertlm,
+        ).fromNetwork(_webModelUrl).install();
+      } else {
+        if (_huggingFaceToken.isEmpty) {
+          throw StateError(
+            '모바일에서는 GEMMA_HF_TOKEN 설정 후 Gemma 3 모델을 다운로드할 수 있습니다.',
+          );
+        }
+        await FlutterEdgeAi.installModel(
+          modelType: ModelType.gemmaIt,
+          fileType: ModelFileType.litertlm,
+        )
+            .fromHuggingFace(
+              _modelRepository,
+              file: _modelFile,
+              token: _huggingFaceToken,
+            )
+            .install();
+      }
+
+      _modelReady = true;
+      status.value = const AiEngineStatus(
+        stage: AiEngineStage.ready,
+        message: 'Gemma 온디바이스 AI 준비 완료! 모더레이션과 판결 요약에 즉시 적용됩니다.',
+        progress: 1.0,
+      );
+    } catch (e) {
+      status.value = AiEngineStatus(
+        stage: AiEngineStage.error,
+        message: 'AI 모델 준비 중 오류가 발생했습니다.',
+        progress: 0,
+        errorDetail: '$e',
+      );
+      rethrow;
+    }
   }
 
   @override
